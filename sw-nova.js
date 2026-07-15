@@ -1,6 +1,6 @@
 // NovaPOS PRO — Service Worker v1.0
 const CACHE = 'novapos-v1';
-const ASSETS = ['./', './novapos-pro.html', './manifest-nova.json', './icon-nova-192.png', './icon-nova-512.png'];
+const ASSETS = ['./', './index.html', './manifest-nova.json', './icon-nova-192.png', './icon-nova-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(

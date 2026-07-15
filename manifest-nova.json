@@ -2,7 +2,7 @@
   "name": "NovaPOS PRO",
   "short_name": "NovaPOS",
   "description": "Sistema POS con facturación — ventas, inventario y caja para cualquier negocio",
-  "start_url": "./novapos-pro.html",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "background_color": "#f8fafc",
