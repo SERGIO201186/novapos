@@ -1426,7 +1426,7 @@ function interpretarRespuestaMaestro(data) {
 async function verificarLicenciaRemota() {
   lgSet('🔒','Verificando licencia…','Un momento, estamos confirmando el estado de tu licencia NovaPOS.',{spinner:true});
 
-  if (NOVAPOS_CONTROL_URL.includes('https://script.google.com/macros/s/AKfycbzhU4ElNfiCO808AgiXcIxj3cazaAdrtiXdpGJ_f-FnCb3LqsrseZbBSCJ7-WaMrxdWcA/exec')) {
+  if (NOVAPOS_CONTROL_URL.includes('PEGA_AQUI')) {
     lgSet('⚙️','Control remoto no configurado','Falta conectar esta copia con el Control Maestro de Omnia Technology. Contacta al distribuidor.',{wa:true});
     return;
   }
