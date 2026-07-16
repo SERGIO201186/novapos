@@ -1064,6 +1064,13 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
           <strong>Impresora de tickets (térmica)</strong>
           <span>Imprime por el diálogo normal de tu dispositivo, o prueba la conexión directa por Bluetooth.</span>
         </div>
+        <div class="field" style="margin:0;max-width:220px">
+          <label>Ancho del papel</label>
+          <select id="cfg-ticket-ancho" onchange="guardarAnchoTicket()">
+            <option value="80">80 mm (estándar)</option>
+            <option value="58">58 mm (mini)</option>
+          </select>
+        </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-ghost btn-sm" onclick="mostrarAyudaImpresora()">Ver cómo conectarla</button>
           <button class="btn btn-indigo btn-sm" onclick="conectarImpresoraBT()">🔵 Probar conexión Bluetooth</button>
@@ -1655,7 +1662,7 @@ async function copyScript() {
 //  STATE
 // ══════════════════════════════════════════════════════════
 let db = { productos:[], ventas:[], movimientos:[], facturas:[], caja:{abierta:false,fondo:0,fechaApertura:null}, cortes:[] };
-let cfg = { url:'', nombre:'NovaPOS Demo', rfc:'', tel:'', dir:'', giro:'generico', iva:16, logo:'' };
+let cfg = { url:'', nombre:'NovaPOS Demo', rfc:'', tel:'', dir:'', giro:'generico', iva:16, logo:'', ticketAncho:'80' };
 let ticket = [];
 let editProdId = null;
 let syncing = false;
@@ -1664,6 +1671,11 @@ let syncing = false;
 //  PERSIST
 // ══════════════════════════════════════════════════════════
 function save() { localStorage.setItem('fp2_db', JSON.stringify(db)); }
+function guardarAnchoTicket() {
+  cfg.ticketAncho = document.getElementById('cfg-ticket-ancho').value;
+  saveCfg();
+  toast('Ancho de ticket actualizado ✓');
+}
 function saveCfg() { localStorage.setItem('fp2_cfg', JSON.stringify(cfg)); }
 function load() {
   const d = localStorage.getItem('fp2_db');
@@ -1963,6 +1975,7 @@ function iniciarApp() {
   document.getElementById('cfg-dir').value    = cfg.dir||'';
   document.getElementById('cfg-giro').value   = cfg.giro||'generico';
   document.getElementById('cfg-iva').value    = cfg.iva ?? 16;
+  document.getElementById('cfg-ticket-ancho').value = cfg.ticketAncho || '80';
   document.querySelectorAll('.modal-bg').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m) m.classList.remove('open'); }));
   setTimeout(()=>document.getElementById('pos-barcode').focus(), 300);
 }
@@ -2822,6 +2835,8 @@ function imprimirTicketById(id) {
 
 function imprimirVenta(venta) {
   const negocio = cfg.nombre || 'Mi Negocio';
+  const anchoPapel = cfg.ticketAncho === '58' ? '58' : '80';
+  const anchoContenido = anchoPapel === '58' ? '48mm' : '72mm';
   const html = buildTicketHTML(venta, true);
   const win = window.open('', '_blank', 'width=320,height=600,scrollbars=yes');
   win.document.write(`<!DOCTYPE html>
@@ -2829,17 +2844,18 @@ function imprimirVenta(venta) {
 <meta charset="UTF-8">
 <title>Ticket ${venta.folio}</title>
 <style>
-  @page { size: 80mm auto; margin: 4mm; }
+  @page { size: ${anchoPapel}mm auto; margin: 0; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: ${anchoContenido}; }
   body {
     font-family: 'Courier New', Courier, monospace;
     font-size: 13px;
-    width: 72mm;
     color: #000;
     line-height: 1.5;
+    padding: 2mm;
   }
   @media print {
-    body { width: 72mm; }
+    html, body { width: ${anchoContenido}; }
     .no-print { display: none !important; }
   }
 </style>
@@ -2855,11 +2871,18 @@ ${html}
     Cerrar
   </button>
 </div>
+<script>
+  // Cierra la ventana sola al terminar de imprimir (o al cancelar el diálogo)
+  window.addEventListener('afterprint', () => window.close());
+</script>
 </body></html>`);
   win.document.close();
   win.focus();
   // Auto-print en desktop
   setTimeout(() => { try { win.print(); } catch(e){} }, 400);
+  // Respaldo: en algunos navegadores Android "afterprint" no se dispara.
+  // Cierra la ventana sola pasado un tiempo razonable para imprimir.
+  setTimeout(() => { try { if (!win.closed) win.close(); } catch(e){} }, 5000);
 }
 
 function focusBarcode() {
@@ -3463,6 +3486,15 @@ async function borrarTodo() {
 
 // ══ PWA — Service Worker + Install ══
 if ('serviceWorker' in navigator) {
+  // Cuando el Service Worker nuevo toma el control (tras instalarse), la
+  // página se recarga sola una vez para mostrar la versión actualizada,
+  // sin depender de que alguien entienda el aviso y recargue a mano.
+  let novaSwRefrescando = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (novaSwRefrescando) return;
+    novaSwRefrescando = true;
+    location.reload();
+  });
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw-nova.js', { scope: './' })
       .then(r => {
@@ -3471,7 +3503,7 @@ if ('serviceWorker' in navigator) {
           const nw = r.installing;
           nw.addEventListener('statechange', () => {
             if (nw.state === 'installed' && navigator.serviceWorker.controller)
-              toast('Actualización disponible — recarga para aplicarla', 'warn');
+              toast('Actualizando a la versión más reciente…', 'warn');
           });
         });
       })
