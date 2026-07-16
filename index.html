@@ -1185,7 +1185,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
 
 <!-- Cobrar -->
 <div class="modal-bg" id="modal-cobrar">
-  <div class="modal">
+  <div class="modal" onkeydown="if(event.key==='Enter'){event.preventDefault();confirmarVenta();}">
     <h3>💳 Cobrar venta</h3>
     <div class="cobrar-total-disp">
       <div class="lbl">Total a cobrar</div>
@@ -2058,6 +2058,30 @@ async function sheetsPost(body) {
   } catch { return false; }
 }
 
+// Sincronización ligera: sube solo el registro que cambió (usa las acciones
+// upsert/delete del backend), a diferencia de syncNow()/sync_all que resube
+// las 5 hojas completas. No se espera (await) desde el flujo de venta, para
+// no bloquear la interfaz mientras se cobra o se imprime.
+async function sheetsUpsert(sheet, data) { return sheetsPost({action:'upsert', sheet, data}); }
+async function sheetsDelete(sheet, id) { return sheetsPost({action:'delete', sheet, id}); }
+
+function saveAndSyncFast(sheet, data) {
+  save();
+  if (!cfg.url) return;
+  setSyncState('syncing');
+  sheetsUpsert(sheet, data)
+    .then(ok => setSyncState(ok ? 'ok' : 'error'))
+    .catch(() => setSyncState('error'));
+}
+function saveAndDeleteFast(sheet, id) {
+  save();
+  if (!cfg.url) return;
+  setSyncState('syncing');
+  sheetsDelete(sheet, id)
+    .then(ok => setSyncState(ok ? 'ok' : 'error'))
+    .catch(() => setSyncState('error'));
+}
+
 async function syncNow() {
   if (!cfg.url) { toast('Configura la URL del Apps Script primero','warn'); return; }
   setSyncState('syncing');
@@ -2378,7 +2402,10 @@ async function guardarProducto() {
   }
 
   closeModal('modal-prod');
-  await saveAndSync();
+  const prodGuardado = editProdId
+    ? db.productos.find(p=>p.id===editProdId)
+    : db.productos[db.productos.length-1];
+  saveAndSyncFast('productos', prodGuardado);
   renderInv();
   renderPosGrid();
 }
@@ -2386,7 +2413,7 @@ async function guardarProducto() {
 async function eliminarProd(id) {
   if (!confirm('¿Eliminar este producto?')) return;
   db.productos = db.productos.filter(p=>p.id!==id);
-  await saveAndSync();
+  saveAndDeleteFast('productos', id);
   renderInv();
   renderPosGrid();
   toast('Producto eliminado','warn');
@@ -2409,7 +2436,7 @@ function invScan() {
   msg.innerHTML = `✅ <strong>${p.nombre}</strong> → stock: ${p.stock-qty} + ${qty} = <strong>${p.stock}</strong>`;
   document.getElementById('inv-bc').value='';
   document.getElementById('inv-qty').value=1;
-  saveAndSync();
+  saveAndSyncFast('productos', p);
   renderInv();
   toast(`+${qty} unidades a ${p.nombre}`);
 }
@@ -2503,7 +2530,7 @@ function renderPosGrid() {
 // ══════════════════════════════════════════════════════════
 function posAddByBarcode() {
   const bc = document.getElementById('pos-barcode').value.trim();
-  if (!bc) return;
+  if (!bc) { openCobrar(); return; } // Enter con el campo vacío = ir a cobrar
   const p = db.productos.find(x=>x.barcode===bc);
   if (!p) toast(`Código "${bc}" no encontrado`,'err');
   else { addToTicket(p.barcode); toast(`${p.nombre} agregado ✓`); }
@@ -2522,6 +2549,7 @@ function addToTicket(bc) {
     ticket.push({barcode:bc, nombre:p.nombre, precio:p.precio, costo:p.costo||0, qty:1, unidad:p.unidad||'pza'});
   }
   renderTicket();
+  focusBarcode(); // regresa el cursor al escáner aunque se haya agregado con el mouse
 }
 
 function changeQty(i, v) {
@@ -2595,6 +2623,7 @@ function openCobrar() {
   toggleEfectivo();
   buildQuickAmts(total);
   openModal('modal-cobrar');
+  setTimeout(()=>document.getElementById('cobrar-rec').focus(), 50);
 }
 
 function toggleEfectivo() {
@@ -2634,10 +2663,11 @@ async function confirmarVenta() {
   const cambio  = recibido - total;
   if (metodo==='efectivo' && recibido<total) { toast('Pago insuficiente','err'); return; }
 
-  // Descontar stock
+  // Descontar stock (solo se guardan/sincronizan los productos realmente afectados)
+  const afectados = new Map();
   ticket.forEach(t=>{
     const p = db.productos.find(x=>x.barcode===t.barcode);
-    if (p) p.stock -= t.qty;
+    if (p) { p.stock -= t.qty; afectados.set(p.id, p); }
   });
 
   const venta = {
@@ -2648,20 +2678,34 @@ async function confirmarVenta() {
     subtotal:sub, descuento:desc, total, recibido, cambio, metodo,
   };
   db.ventas.push(venta);
-  db.movimientos.push({
+  const mov = {
     id:uid(), fecha:new Date().toISOString(),
     tipo:'ingreso', monto:total, concepto:`Venta ${venta.folio}`
-  });
+  };
+  db.movimientos.push(mov);
 
   closeModal('modal-cobrar');
   clearTicket();
-  await saveAndSync();
+  save(); // persiste local al instante, sin esperar la red
+
   renderInv();
   renderCaja();
   updateBadge();
 
-  // Mostrar ticket y enviar a imprimir
+  // Mostrar ticket e imprimir de inmediato — ya no espera a la sincronización
   mostrarTicket(venta);
+
+  // Sincroniza en segundo plano solo lo que cambió: la venta, el movimiento
+  // de caja y los productos con stock afectado. No bloquea la interfaz.
+  if (cfg.url) {
+    setSyncState('syncing');
+    Promise.all([
+      sheetsUpsert('ventas', venta),
+      sheetsUpsert('movimientos', mov),
+      ...[...afectados.values()].map(p => sheetsUpsert('productos', p)),
+    ]).then(results => setSyncState(results.every(Boolean) ? 'ok' : 'error'))
+      .catch(() => setSyncState('error'));
+  }
 }
 
 // ══════════════════════════════════════════════════════════
@@ -2755,6 +2799,9 @@ function mostrarTicket(venta) {
   openModal('modal-ticket');
   // Imprimir automáticamente
   setTimeout(() => imprimirTicketActual(), 300);
+  // Cerrar el ticket y regresar el foco al escáner automáticamente para la
+  // siguiente venta. "Facturar" sigue disponible después desde el historial de ventas.
+  setTimeout(() => { closeModal('modal-ticket'); focusBarcode(); }, 1500);
 }
 
 function facturarDesdeTicket() {
