@@ -1985,7 +1985,7 @@ function showView(v, el) {
     if (idx>=0) document.querySelectorAll('.bnav-btn')[idx]?.classList.add('active');
     if (mIdx>=0) document.querySelectorAll('.dnav-btn')[mIdx]?.classList.add('active');
   }
-  if (v==='pos') setTimeout(()=>document.getElementById('pos-barcode').focus(),100);
+  if (v==='pos') { renderPosGrid(); setTimeout(()=>document.getElementById('pos-barcode').focus(),100); }
   if (v==='inventario') renderInv();
   if (v==='facturas') { renderFacturas(); renderVentasParaFacturar(); }
   if (v==='caja') renderCaja();
@@ -2689,6 +2689,7 @@ async function confirmarVenta() {
   save(); // persiste local al instante, sin esperar la red
 
   renderInv();
+  renderPosGrid();
   renderCaja();
   updateBadge();
 
