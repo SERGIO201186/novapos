@@ -1096,10 +1096,33 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
 
     <div class="card">
       <div class="card-hd">🎧 Soporte</div>
-      <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">¿Dudas, un error o necesitas ayuda? Escríbenos.</p>
+      <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">¿Dudas, un error o necesitas ayuda? Tu reporte queda registrado en nuestro sistema, no solo en un chat que se puede perder.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn btn-primary btn-sm" onclick="solicitarSoporte()">💬 WhatsApp</button>
-        <button class="btn btn-ghost btn-sm" onclick="abrirSoporteEmail('Soporte NovaPOS', 'Hola, necesito ayuda con NovaPOS.')">✉️ Correo</button>
+        <button class="btn btn-primary btn-sm" onclick="abrirModalSoporte()">📩 Reportar soporte</button>
+        <button class="btn btn-ghost btn-sm" onclick="solicitarSoporte()">💬 WhatsApp directo</button>
+      </div>
+    </div>
+
+    <div class="modal-bg" id="modal-soporte">
+      <div class="modal">
+        <h3>🎧 Reportar soporte</h3>
+        <div class="field"><label>Tu nombre / negocio</label><input id="sop-nombre" placeholder="Ej. Farmacia San José"></div>
+        <div class="field"><label>Correo electrónico</label><input id="sop-email" type="email" placeholder="tunegocio@correo.com"></div>
+        <div class="field"><label>Asunto</label><input id="sop-asunto" placeholder="Ej. No sincroniza el inventario"></div>
+        <div class="field">
+          <label>Prioridad</label>
+          <select id="sop-prioridad">
+            <option value="baja">Baja</option>
+            <option value="media" selected>Media</option>
+            <option value="alta">Alta — no puedo vender</option>
+          </select>
+        </div>
+        <div class="field"><label>Describe el problema</label><textarea id="sop-mensaje" rows="4" style="width:100%;padding:11px 13px;border-radius:9px;border:1px solid var(--border);background:var(--panelAlt,#f8fafc);font-family:inherit;resize:vertical" placeholder="Qué pasó, qué esperabas que pasara, y desde cuándo."></textarea></div>
+        <div style="display:flex;gap:8px;margin-top:14px">
+          <button class="btn btn-ghost" style="flex:1" onclick="closeModal('modal-soporte')">Cancelar</button>
+          <button class="btn btn-primary btn-lg" style="flex:2" onclick="enviarSoporte()">Enviar reporte</button>
+        </div>
+        <div id="sop-aviso" style="margin-top:10px;font-size:12.5px"></div>
       </div>
     </div>
 
@@ -1383,6 +1406,58 @@ function abrirSoporteEmail(asunto, cuerpo) {
 function solicitarSoporte() {
   const cliente = licenciaInfo?.cliente || cfg.nombre || 'Cliente NovaPOS';
   abrirSoporteWhatsApp(`Hola, soy ${cliente} y necesito soporte con mi NovaPOS.`);
+}
+
+function abrirModalSoporte() {
+  const cliente = licenciaInfo?.cliente || cfg.nombre || '';
+  document.getElementById('sop-nombre').value = cliente;
+  document.getElementById('sop-email').value = '';
+  document.getElementById('sop-asunto').value = '';
+  document.getElementById('sop-prioridad').value = 'media';
+  document.getElementById('sop-mensaje').value = '';
+  document.getElementById('sop-aviso').textContent = '';
+  openModal('modal-soporte');
+}
+
+async function enviarSoporte() {
+  const clientName = document.getElementById('sop-nombre').value.trim();
+  const email = document.getElementById('sop-email').value.trim();
+  const subject = document.getElementById('sop-asunto').value.trim();
+  const priority = document.getElementById('sop-prioridad').value;
+  const message = document.getElementById('sop-mensaje').value.trim();
+  const aviso = document.getElementById('sop-aviso');
+
+  if (!clientName || !email || !subject || !message) {
+    aviso.style.color = '#dc2626';
+    aviso.textContent = 'Completa nombre, correo, asunto y descripción del problema.';
+    return;
+  }
+
+  aviso.style.color = 'var(--txt2,#666)';
+  aviso.textContent = 'Enviando…';
+
+  // El ticket se registra en el Control Maestro de Omnia (mismo backend que
+  // valida la licencia de esta app) — así queda visible en la pestaña
+  // Soporte del panel, no solo en un chat de WhatsApp que se puede perder.
+  try {
+    const r = await fetch(NOVAPOS_CONTROL_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'supportTicket', clientName, email, subject, message, priority }),
+    });
+    const data = await r.json();
+    if (data && !data.error) {
+      aviso.style.color = '#059669';
+      aviso.textContent = `✓ Reporte registrado (folio ${data.id || '—'}). Te contactaremos según la prioridad indicada.`;
+      setTimeout(() => closeModal('modal-soporte'), 2200);
+    } else {
+      throw new Error(data && data.error ? data.error : 'Respuesta inválida');
+    }
+  } catch (err) {
+    aviso.style.color = '#dc2626';
+    aviso.textContent = `No se pudo registrar automáticamente (${err.message}). Te contactamos por WhatsApp mientras tanto.`;
+    setTimeout(() => abrirSoporteWhatsApp(`Hola, soy ${clientName}. Asunto: ${subject}. ${message}`), 900);
+  }
 }
 
 let licenciaInfo = null; // {clave, cliente, vence, verificadoEn}
