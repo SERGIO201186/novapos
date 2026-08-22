@@ -615,6 +615,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
     <button class="dnav-btn" onclick="showView('inventario',this)"><span class="icon">📦</span><span id="nav-inv-label">Inventario</span></button>
     <button class="dnav-btn" onclick="showView('facturas',this)"><span class="icon">🧾</span>Facturas</button>
     <button class="dnav-btn" onclick="showView('caja',this)"><span class="icon">💰</span>Caja</button>
+    <button class="dnav-btn" onclick="showView('recargas',this)"><span class="icon">📱</span>Recargas</button>
     <button class="dnav-btn" onclick="showView('reportes',this)"><span class="icon">📊</span>Reportes</button>
     <button class="dnav-btn" onclick="showView('config',this)"><span class="icon">⚙️</span>Config</button>
   </nav>
@@ -798,6 +799,68 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
     <div class="card-hd">📋 Movimientos del día</div>
     <div id="mov-list"></div>
     <div class="empty" id="mov-empty"><p>Sin movimientos registrados hoy</p></div>
+  </div>
+</div>
+
+<!-- ═══════ VIEW: RECARGAS ═══════ -->
+<div id="view-recargas" class="view">
+  <h2 style="font:700 1.1rem var(--sans)">📱 Recargas telefónicas</h2>
+
+  <div class="tiles tiles-3">
+    <div class="tile indigo"><div class="t-lbl">Recargas hoy</div><div class="t-val" id="rec-n-hoy">0</div></div>
+    <div class="tile verde"><div class="t-lbl">Vendido hoy</div><div class="t-val" id="rec-tot-hoy">$0.00</div></div>
+    <div class="tile amber"><div class="t-lbl">Comisión estimada</div><div class="t-val" id="rec-gan-hoy">$0.00</div></div>
+  </div>
+
+  <div class="card" id="rec-proveedor-warn" style="display:none;border:2px solid var(--amber);background:var(--amber-lt)">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font-size:1.4rem">⚠️</span>
+      <div style="font-size:12px;color:var(--txt2);line-height:1.6">
+        <strong style="color:var(--amber)">Proveedor de recargas no conectado.</strong>
+        Puedes capturar recargas y quedan en el historial, pero no se enviarán a ninguna compañía telefónica hasta
+        que conectes un proveedor en <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px" onclick="irAConfigRecargas()">Configuración → Recargas telefónicas</button>.
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-hd">➕ Nueva recarga</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="field" style="margin:0">
+        <label>Compañía *</label>
+        <select id="rec-compania">
+          <option value="telcel">Telcel</option>
+          <option value="att">AT&amp;T</option>
+          <option value="movistar">Movistar</option>
+          <option value="unefon">Unefon</option>
+          <option value="bait">Bait</option>
+          <option value="virgin">Virgin Mobile</option>
+          <option value="otra">Otra</option>
+        </select>
+      </div>
+      <div class="field" style="margin:0">
+        <label>Número a 10 dígitos *</label>
+        <input id="rec-telefono" class="barcode-inp" type="tel" inputmode="numeric" maxlength="10" placeholder="55XXXXXXXX" oninput="this.value=this.value.replace(/\D/g,'').slice(0,10)">
+      </div>
+    </div>
+    <div class="field">
+      <label>Monto</label>
+      <div class="quick-amts" id="rec-montos-rapidos"></div>
+      <input type="number" id="rec-monto" min="10" step="1" placeholder="Monto ($)">
+    </div>
+    <button class="btn btn-primary btn-full btn-lg" id="btn-recargar" onclick="procesarRecarga()">📲 Recargar</button>
+  </div>
+
+  <div class="card" style="padding:0;overflow:hidden">
+    <div style="padding:12px 16px;border-bottom:1px solid var(--border)">
+      <strong style="font-size:13px">Historial de recargas</strong>
+    </div>
+    <div class="tbl-wrap" style="border:none;border-radius:0">
+      <table>
+        <thead><tr><th>Fecha</th><th>Folio</th><th>Compañía</th><th>Número</th><th>Monto</th><th>Estatus</th><th></th></tr></thead>
+        <tbody id="rec-tbody"></tbody>
+      </table>
+    </div>
   </div>
 </div>
 
@@ -1160,6 +1223,30 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
     </div>
 
     <div class="card">
+      <div class="card-hd">📱 Recargas telefónicas</div>
+      <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">NovaPOS no se conecta directo a Telcel/AT&T/Movistar: eso lo hace un mayorista con webservice propio (ej. Seycel, Taecel, Sivetel). Para no exponer las credenciales de ese proveedor en este archivo HTML/JS —visible para cualquiera con el código fuente—, la recarga se manda al mismo Apps Script de arriba (usa la misma URL y clave secreta) y es ahí, del lado del servidor, donde se agrega la llamada real al proveedor.</p>
+      <div id="rec-cfg-status" class="sheets-status">
+        <span id="rec-cfg-dot">⚪</span>
+        <span id="rec-cfg-txt">Sin conexión a Google Sheets — las recargas solo quedarán en el historial local</span>
+      </div>
+      <div class="field">
+        <label>% de comisión esperado (solo informativo)</label>
+        <input id="cfg-recarga-comision" type="number" min="0" max="100" step="0.1" placeholder="6">
+        <p style="font-size:11px;color:var(--txt2);margin-top:4px">Se usa únicamente para estimar tu ganancia en el tablero de Recargas — no cambia lo que le cobras al cliente ni lo que paga el proveedor.</p>
+      </div>
+      <button class="btn btn-primary" onclick="guardarConfigRecargas()">💾 Guardar</button>
+      <details style="margin-top:14px">
+        <summary style="font:600 12px var(--sans);cursor:pointer;color:var(--indigo)">📋 Cómo conectar tu proveedor real</summary>
+        <div style="font-size:12px;color:var(--txt2);margin-top:8px;line-height:1.8;background:var(--bg);padding:12px;border-radius:8px">
+          <strong>1.</strong> Da de alta una cuenta de distribuidor con tu proveedor de recargas (Seycel, Taecel, Sivetel, etc.) y obtén sus credenciales de API.<br>
+          <strong>2.</strong> En el código Apps Script (botón "Copiar código Apps Script" en la tarjeta de arriba), busca la función <code>sendRecharge_</code> — ahí hay un TODO marcado para pegar la llamada real a tu proveedor con <code>UrlFetchApp</code>, usando las credenciales guardadas en Script Properties (nunca en este HTML).<br>
+          <strong>3.</strong> Vuelve a implementar el Apps Script como Aplicación Web para que tome el cambio.<br>
+          <strong>4.</strong> Prueba con una recarga pequeña desde la pantalla de Recargas antes de operar con clientes.
+        </div>
+      </details>
+    </div>
+
+    <div class="card">
       <div class="card-hd">⚠️ Zona de peligro</div>
       <div style="margin-bottom:10px;font-size:12px;color:var(--txt2)">
         <strong>Borrar datos de prueba</strong> elimina productos, ventas y facturas de ejemplo. Tu configuración se conserva.
@@ -1183,6 +1270,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
     <button class="bnav-btn" onclick="showView('inventario',this)"><span class="bicon">📦</span><span id="bnav-inv-label">Inventario</span></button>
     <button class="bnav-btn" onclick="showView('facturas',this)"><span class="bicon">🧾</span>Facturas</button>
     <button class="bnav-btn" onclick="showView('caja',this)"><span class="bicon">💰</span>Caja</button>
+    <button class="bnav-btn" onclick="showView('recargas',this)"><span class="bicon">📱</span>Recargas</button>
     <button class="bnav-btn" onclick="showView('reportes',this)"><span class="bicon">📊</span>Reportes</button>
     <button class="bnav-btn" onclick="showView('config',this)"><span class="bicon">⚙️</span>Config</button>
   </div>
@@ -1622,6 +1710,9 @@ function activarModoPro(lic) {
   if (giroEl) giroEl.value = cfg.giro || 'generico';
   mostrarLogoPreview();
 
+  const comisionEl = document.getElementById('cfg-recarga-comision');
+  if (comisionEl) comisionEl.value = cfg.rechargeComision ?? 6;
+
   if (cfg.url) {
     const urlEl = document.getElementById('cfg-url');
     if (urlEl) urlEl.value = cfg.url;
@@ -1675,6 +1766,12 @@ function doPost(e) {
     const body = JSON.parse(e.postData.contents);
     if (!checkSecret(body.secret)) return json({ok:false, error:'unauthorized'});
     const {action, sheet: sheetName, data, id} = body;
+
+    // La recarga no toca hojas directamente: solo habla con el proveedor y
+    // regresa el resultado. NovaPOS guarda el registro por separado con un
+    // 'upsert' normal a la hoja "recargas", igual que hace con ventas/facturas.
+    if (action === 'recharge') return handleRecharge_(body);
+
     const sheet = getSheet(sheetName || 'productos');
     const headers = sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0];
 
@@ -1707,6 +1804,41 @@ function doPost(e) {
   }
 }
 
+// 📲 Habla con el proveedor mayorista de recargas (Seycel, Taecel, Sivetel,
+// etc.) y regresa el resultado a NovaPOS. TODO: sustituye el cuerpo de
+// sendRecharge_ por la llamada real a la API de tu proveedor, usando
+// UrlFetchApp y credenciales guardadas en Archivo → Propiedades del proyecto
+// → Propiedades del script (Configuración ⚙️ del editor) — nunca las escribas
+// aquí en texto plano ni en NovaPOS, cualquiera con el HTML/JS las vería.
+function sendRecharge_(compania, telefono, monto) {
+  // Ejemplo de cómo quedaría (ajusta nombres de campos y endpoint a la
+  // documentación real que te dé tu proveedor al darte de alta):
+  //
+  // const props = PropertiesService.getScriptProperties();
+  // const resp = UrlFetchApp.fetch('https://api.tuproveedor.mx/recarga', {
+  //   method: 'post',
+  //   contentType: 'application/json',
+  //   payload: JSON.stringify({
+  //     compania, telefono, monto,
+  //     usuario: props.getProperty('PROVEEDOR_USUARIO'),
+  //     clave:   props.getProperty('PROVEEDOR_CLAVE'),
+  //   }),
+  //   muteHttpExceptions: true,
+  // });
+  // const data = JSON.parse(resp.getContentText());
+  // return { ok: !!data.exito, folioProveedor: data.folio || '', mensaje: data.mensaje || '' };
+
+  return { ok:false, mensaje:'Proveedor de recargas no configurado todavía — edita sendRecharge_ en este script.' };
+}
+
+function handleRecharge_(body) {
+  const { compania, telefono, monto } = body;
+  const resultado = sendRecharge_(compania, telefono, monto);
+  return resultado.ok
+    ? json({ ok:true, folioProveedor: resultado.folioProveedor||'', mensaje: resultado.mensaje||'' })
+    : json({ ok:false, error: resultado.mensaje||'Error del proveedor' });
+}
+
 function getSheet(name) {
   const ss = SpreadsheetApp.openById(SS_ID);
   let s = ss.getSheetByName(name);
@@ -1717,6 +1849,7 @@ function getSheet(name) {
       ventas:      ['id','folio','fecha','items','subtotal','descuento','total','recibido','cambio','metodo'],
       movimientos: ['id','fecha','tipo','monto','concepto'],
       facturas:    ['id','folio','ventaId','fecha','clienteNombre','clienteRFC','clienteEmail','clienteDir','usoCFDI','metodoPago','formaPago','subtotal','iva','total','estatus','cfdiUUID'],
+      recargas:    ['id','folio','fecha','compania','telefono','monto','comisionPct','gananciaEstimada','estatus','folioProveedor','mensaje'],
       config:      ['key','value']
     };
     if (headers[name]) s.getRange(1,1,1,headers[name].length).setValues([headers[name]]);
@@ -1755,8 +1888,8 @@ async function copyScript() {
 // ══════════════════════════════════════════════════════════
 //  STATE
 // ══════════════════════════════════════════════════════════
-let db = { productos:[], ventas:[], movimientos:[], facturas:[], caja:{abierta:false,fondo:0,fechaApertura:null}, cortes:[] };
-let cfg = { url:'', syncSecret:'', nombre:'NovaPOS Demo', rfc:'', tel:'', dir:'', giro:'generico', iva:16, logo:'', ticketAncho:'80' };
+let db = { productos:[], ventas:[], movimientos:[], facturas:[], caja:{abierta:false,fondo:0,fechaApertura:null}, cortes:[], recargas:[] };
+let cfg = { url:'', syncSecret:'', nombre:'NovaPOS Demo', rfc:'', tel:'', dir:'', giro:'generico', iva:16, logo:'', ticketAncho:'80', rechargeComision:6 };
 let ticket = [];
 let editProdId = null;
 let syncing = false;
@@ -1782,6 +1915,7 @@ function load() {
   if (!db.ventas) db.ventas = [];
   if (!db.movimientos) db.movimientos = [];
   if (!db.cortes) db.cortes = [];
+  if (!db.recargas) db.recargas = [];
   if (!db.caja) db.caja = {abierta:false,fondo:0,fechaApertura:null};
 }
 
@@ -2065,6 +2199,8 @@ function iniciarApp() {
   renderReportes();
   renderFacturas();
   renderVentasParaFacturar();
+  renderMontosRecarga();
+  renderRecargas();
   if (db.caja.abierta) { document.getElementById('caja-closed').style.display='none'; document.getElementById('caja-open').style.display='block'; }
   // Rellenar campos de configuración con los datos guardados
   document.getElementById('cfg-nombre').value = cfg.nombre||'';
@@ -2100,7 +2236,13 @@ function showView(v, el) {
   if (v==='inventario') renderInv();
   if (v==='facturas') { renderFacturas(); renderVentasParaFacturar(); }
   if (v==='caja') renderCaja();
+  if (v==='recargas') renderRecargas();
   if (v==='reportes') renderReportes();
+}
+
+function irAConfigRecargas() {
+  showView('config');
+  setTimeout(() => document.getElementById('cfg-recarga-comision')?.scrollIntoView({behavior:'smooth', block:'center'}), 50);
 }
 
 function showTab(id, el) {
@@ -2205,6 +2347,7 @@ async function syncNow() {
         movimientos: db.movimientos,
         facturas:    db.facturas || [],
         cortes:      db.cortes,
+        recargas:    db.recargas || [],
       }
     });
     setSyncState(ok ? 'ok' : 'error');
@@ -2235,10 +2378,21 @@ function updateSheetsStatusBox(ok) {
   const box = document.getElementById('sheets-status-box');
   const dot = document.getElementById('sheets-dot');
   const txt = document.getElementById('sheets-txt');
-  if (!box || !dot || !txt) return;
-  box.className = 'sheets-status ' + (ok?'connected':'error');
-  dot.textContent = ok ? '🟢' : '🔴';
-  txt.textContent = ok ? 'Conectado — datos sincronizados con Google Sheets' : 'Error de conexión';
+  if (box && dot && txt) {
+    box.className = 'sheets-status ' + (ok?'connected':'error');
+    dot.textContent = ok ? '🟢' : '🔴';
+    txt.textContent = ok ? 'Conectado — datos sincronizados con Google Sheets' : 'Error de conexión';
+  }
+  // La misma URL/Apps Script sirve de backend para recargas, así que comparte estado de conexión.
+  const recBox = document.getElementById('rec-cfg-status');
+  const recDot = document.getElementById('rec-cfg-dot');
+  const recTxt = document.getElementById('rec-cfg-txt');
+  if (recBox && recDot && recTxt) {
+    recBox.className = 'sheets-status ' + (ok?'connected':'error');
+    recDot.textContent = ok ? '🟢' : '🔴';
+    recTxt.textContent = ok ? 'Conectado — falta agregar tu proveedor real en sendRecharge_ (ver instrucciones)' : 'Sin conexión — configura primero Google Sheets arriba';
+  }
+  renderRecargas();
 }
 
 // Auto-sync after mutations (en esta demo nunca se activa, ya que no hay
@@ -2308,6 +2462,14 @@ function guardarConfigSheets() {
   cfg.syncSecret = (document.getElementById('cfg-secret')||{}).value?.trim() || '';
   saveCfg();
   testConexion();
+}
+
+function guardarConfigRecargas() {
+  const v = parseFloat((document.getElementById('cfg-recarga-comision')||{}).value);
+  cfg.rechargeComision = isNaN(v) ? 0 : Math.min(100, Math.max(0, v));
+  saveCfg();
+  renderRecargas();
+  toast('Configuración de recargas guardada ✓');
 }
 
 // ══════════════════════════════════════════════════════════
@@ -2406,16 +2568,17 @@ async function borrarDatosPrueba() {
   db.movimientos = [];
   db.facturas    = [];
   db.cortes      = [];
+  db.recargas    = [];
   db.caja        = { abierta: false, fondo: 0, fechaApertura: null };
   if (cfg.url) {
-    await sheetsPost({ action:'sync_all', data:{ productos:[], ventas:[], movimientos:[], facturas:[], cortes:[] } });
+    await sheetsPost({ action:'sync_all', data:{ productos:[], ventas:[], movimientos:[], facturas:[], cortes:[], recargas:[] } });
   }
   save();
   const cc = document.getElementById('caja-closed');
   const co = document.getElementById('caja-open');
   if (cc) cc.style.display = 'block';
   if (co) co.style.display = 'none';
-  renderPosGrid(); renderInv(); renderCaja(); renderReportes(); renderFacturas();
+  renderPosGrid(); renderInv(); renderCaja(); renderReportes(); renderFacturas(); renderRecargas();
   clearTicket && clearTicket();
   updateBadge();
   toast('Datos de prueba eliminados. ¡Sistema listo para usar! ✓');
@@ -3068,6 +3231,188 @@ function renderCaja() {
 }
 
 // ══════════════════════════════════════════════════════════
+//  RECARGAS TELEFÓNICAS
+//  ------------------------------------------------------------
+//  NovaPOS no habla directo con Telcel/AT&T/Movistar: eso lo hace un
+//  mayorista con webservice propio (Seycel, Taecel, Sivetel, etc.).
+//  Para no exponer credenciales de ese proveedor en este HTML/JS —
+//  visibles para cualquiera con el código fuente— la petición se manda
+//  al mismo Apps Script que ya usa la sincronización con Sheets (acción
+//  'recharge'), y es ahí, del lado del servidor, donde se agrega la
+//  llamada real al proveedor elegido (ver sendRecharge_ en
+//  APPS_SCRIPT_CODE, más abajo). Mientras eso no esté conectado, las
+//  recargas quedan registradas en el historial pero no se envían a
+//  ninguna compañía — este módulo nunca finge un éxito que no ocurrió.
+// ══════════════════════════════════════════════════════════
+const COMPANIAS_RECARGA = {
+  telcel:'Telcel', att:'AT&T', movistar:'Movistar', unefon:'Unefon',
+  bait:'Bait', virgin:'Virgin Mobile', otra:'Otra',
+};
+const MONTOS_RECARGA_SUGERIDOS = [20,30,50,100,150,200,300,500];
+
+function renderMontosRecarga() {
+  const wrap = document.getElementById('rec-montos-rapidos');
+  if (!wrap) return;
+  wrap.innerHTML = MONTOS_RECARGA_SUGERIDOS.map(a =>
+    `<button type="button" class="qa-btn" onclick="document.getElementById('rec-monto').value=${a}">${mxn(a)}</button>`
+  ).join('');
+}
+
+function getFolioRecarga() { return 'R-'+String(db.recargas.length+1).padStart(4,'0'); }
+
+async function procesarRecarga() {
+  const compania = document.getElementById('rec-compania').value;
+  const telefono = document.getElementById('rec-telefono').value.trim();
+  const monto    = parseFloat(document.getElementById('rec-monto').value);
+  const btn = document.getElementById('btn-recargar');
+
+  if (!/^\d{10}$/.test(telefono)) { toast('El número debe tener 10 dígitos','err'); return; }
+  if (!monto || monto <= 0) { toast('Ingresa un monto válido','err'); return; }
+  if (!db.caja.abierta) { toast('Abre la caja primero','warn'); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Procesando…';
+  const resultado = await enviarRecargaProveedor({ compania, telefono, monto });
+  btn.disabled = false;
+  btn.textContent = '📲 Recargar';
+
+  const comisionPct = cfg.rechargeComision || 0;
+  const rec = {
+    id: uid(),
+    folio: getFolioRecarga(),
+    fecha: new Date().toISOString(),
+    compania, telefono, monto,
+    comisionPct,
+    gananciaEstimada: monto * comisionPct / 100,
+    estatus: resultado.ok ? 'completada' : 'error',
+    folioProveedor: resultado.folioProveedor || '',
+    mensaje: resultado.mensaje || '',
+  };
+  db.recargas.push(rec);
+
+  if (resultado.ok) {
+    // Solo se registra como ingreso de caja cuando el proveedor confirmó la
+    // recarga — si falla, se asume que aún no se le cobró al cliente.
+    db.movimientos.push({
+      id: uid(), fecha: new Date().toISOString(), tipo:'ingreso', monto,
+      concepto: `Recarga ${COMPANIAS_RECARGA[compania]||compania} ${telefono} (${rec.folio})`,
+    });
+    document.getElementById('rec-telefono').value = '';
+    document.getElementById('rec-monto').value = '';
+    toast(`Recarga ${rec.folio} completada ✓`);
+  } else {
+    toast(`No se completó la recarga: ${resultado.mensaje}`, 'err');
+  }
+
+  save();
+  saveAndSyncFast('recargas', rec);
+  renderRecargas();
+  renderCaja();
+  updateBadge();
+}
+
+async function enviarRecargaProveedor({ compania, telefono, monto }) {
+  if (!cfg.url) {
+    return { ok:false, mensaje:'No hay proveedor de recargas conectado (configura Google Sheets/Apps Script en Configuración).' };
+  }
+  try {
+    const r = await fetch(cfg.url, {
+      method: 'POST',
+      body: JSON.stringify({ action:'recharge', compania, telefono, monto, secret: cfg.syncSecret||'' }),
+      headers: { 'Content-Type':'text/plain' },
+    });
+    const j = await r.json();
+    if (!j.ok) return { ok:false, mensaje: j.error || 'El proveedor rechazó la recarga.' };
+    return { ok:true, folioProveedor: j.folioProveedor||'', mensaje: j.mensaje||'Recarga enviada' };
+  } catch (err) {
+    return { ok:false, mensaje:'No se pudo contactar al servidor: ' + err.message };
+  }
+}
+
+function renderRecargas() {
+  const warn = document.getElementById('rec-proveedor-warn');
+  if (warn) warn.style.display = cfg.url ? 'none' : 'block';
+
+  const h = hoy();
+  const hoyRecargas = db.recargas.filter(r => r.fecha.startsWith(h) && r.estatus==='completada');
+  document.getElementById('rec-n-hoy').textContent = hoyRecargas.length;
+  document.getElementById('rec-tot-hoy').textContent = mxn(hoyRecargas.reduce((s,r)=>s+r.monto,0));
+  document.getElementById('rec-gan-hoy').textContent = mxn(hoyRecargas.reduce((s,r)=>s+r.gananciaEstimada,0));
+
+  const tbody = document.getElementById('rec-tbody');
+  if (!db.recargas.length) {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--txt2);padding:20px">Sin recargas todavía</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = [...db.recargas].reverse().map(r => {
+    const badge = r.estatus==='completada' ? 'badge-verde' : 'badge-rojo';
+    const estatusTxt = r.estatus==='completada' ? 'Completada' : 'Error';
+    return `<tr>
+      <td style="font-size:11px;white-space:nowrap">${new Date(r.fecha).toLocaleString('es-MX',{dateStyle:'short',timeStyle:'short'})}</td>
+      <td><span class="badge badge-indigo">${esc(r.folio)}</span></td>
+      <td>${esc(COMPANIAS_RECARGA[r.compania]||r.compania)}</td>
+      <td style="font-family:var(--mono)">${esc(r.telefono)}</td>
+      <td style="font-family:var(--mono)">${mxn(r.monto)}</td>
+      <td><span class="badge ${badge}" title="${esc(r.mensaje)}">${estatusTxt}</span></td>
+      <td>${r.estatus==='completada' ? `<button class="btn btn-ghost btn-sm" onclick="imprimirRecarga('${r.id}')">🖨</button>` : ''}</td>
+    </tr>`;
+  }).join('');
+}
+
+function buildRecargaHTML(r) {
+  const negocio = esc(cfg.nombre || 'Mi Negocio');
+  const dir = esc(cfg.dir || '');
+  const tel = esc(cfg.tel || '');
+  const fecha = new Date(r.fecha);
+  const fStr = fecha.toLocaleDateString('es-MX',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const hStr = fecha.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'});
+  return `
+    <div style="text-align:center;font-weight:700;font-size:15px;letter-spacing:1px;margin-bottom:2px">${negocio.toUpperCase()}</div>
+    ${dir?`<div style="text-align:center;font-size:11px">${dir}</div>`:''}
+    ${tel?`<div style="text-align:center;font-size:11px">Tel: ${tel}</div>`:''}
+    <div style="border-top:1px dashed #999;margin:6px 0"></div>
+    <div style="text-align:center;font-weight:700;font-size:13px">COMPROBANTE DE RECARGA</div>
+    <div style="display:flex;justify-content:space-between;font-size:11px"><span>Folio: <b>${esc(r.folio)}</b></span><span>${fStr} ${hStr}</span></div>
+    <div style="border-top:1px dashed #999;margin:6px 0"></div>
+    <div style="font-size:12px"><b>Compañía:</b> ${esc(COMPANIAS_RECARGA[r.compania]||r.compania)}</div>
+    <div style="font-size:12px"><b>Número:</b> ${esc(r.telefono)}</div>
+    ${r.folioProveedor?`<div style="font-size:11px;color:#555"><b>Folio proveedor:</b> ${esc(r.folioProveedor)}</div>`:''}
+    <div style="border-top:1px dashed #999;margin:6px 0"></div>
+    <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:700"><span>MONTO</span><span>${mxn(r.monto)}</span></div>
+    <div style="border-top:1px dashed #999;margin:8px 0"></div>
+    <div style="text-align:center;font-size:11px;color:#555">¡Gracias por su compra!</div>`;
+}
+
+function imprimirRecarga(id) {
+  const r = db.recargas.find(x=>x.id===id);
+  if (!r) return;
+  const html = buildRecargaHTML(r);
+  const win = window.open('', '_blank', 'width=320,height=600,scrollbars=yes');
+  win.document.write(`<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<title>Recarga ${r.folio}</title>
+<style>
+  @page { size: 80mm auto; margin: 4mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Courier New', Courier, monospace; font-size: 13px; width: 72mm; color: #000; line-height: 1.5; }
+  @media print { body { width: 72mm; } .no-print { display: none !important; } }
+</style>
+</head>
+<body>
+${html}
+<br>
+<div class="no-print" style="margin-top:16px;text-align:center">
+  <button onclick="window.print()" style="padding:8px 24px;font-size:14px;cursor:pointer;background:#059669;color:#fff;border:none;border-radius:6px">🖨 Imprimir</button>
+  <button onclick="window.close()" style="padding:8px 16px;font-size:14px;cursor:pointer;margin-left:8px;border:1px solid #ccc;border-radius:6px">Cerrar</button>
+</div>
+</body></html>`);
+  win.document.close();
+  win.focus();
+  setTimeout(()=>{ try{win.print();}catch(e){} }, 400);
+}
+
+// ══════════════════════════════════════════════════════════
 //  REPORTES
 // ══════════════════════════════════════════════════════════
 function getVentasFiltradas() {
@@ -3546,7 +3891,7 @@ function loadDemoData(giro) {
 // ══════════════════════════════════════════════════════════
 function resetDemo() {
   if (!confirm('¿Reiniciar todos los datos de demostración?')) return;
-  db = {productos:[],ventas:[],movimientos:[],facturas:[],caja:{abierta:false,fondo:0,fechaApertura:null},cortes:[]};
+  db = {productos:[],ventas:[],movimientos:[],facturas:[],caja:{abierta:false,fondo:0,fechaApertura:null},cortes:[],recargas:[]};
   loadDemoData(cfg.giro);
   ticket=[];
   renderTicket();
@@ -3556,6 +3901,7 @@ function resetDemo() {
   renderReportes();
   renderFacturas();
   renderVentasParaFacturar();
+  renderRecargas();
   updateBadge();
   document.getElementById('caja-closed').style.display='none';
   document.getElementById('caja-open').style.display='block';
@@ -3575,10 +3921,10 @@ function exportDB() {
 
 async function borrarTodo() {
   if (!confirm('⚠️ ¿Borrar TODOS los datos locales y en Google Sheets?')) return;
-  if (!confirm('Última confirmación: se eliminarán productos, ventas, facturas, movimientos y cortes.')) return;
+  if (!confirm('Última confirmación: se eliminarán productos, ventas, facturas, movimientos, cortes y recargas.')) return;
   if (cfg.url) {
     setSyncState('syncing', 'Borrando en Sheets…');
-    await sheetsPost({ action:'sync_all', data:{ productos:[], ventas:[], movimientos:[], facturas:[], cortes:[] } });
+    await sheetsPost({ action:'sync_all', data:{ productos:[], ventas:[], movimientos:[], facturas:[], cortes:[], recargas:[] } });
   }
   localStorage.removeItem('fp2_db');
   setSyncState('idle');
