@@ -1261,6 +1261,16 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
     </div>
 
     <div class="card">
+      <div class="card-hd">🔒 Seguridad de inventario</div>
+      <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Si lo configuras, se va a pedir este NIP antes de agregar, editar o eliminar productos, y antes de agregar stock escaneando — para que el personal de venta no pueda tocar el inventario sin permiso. Déjalo vacío para no pedir nada (como hasta ahora).</p>
+      <div class="field">
+        <label>NIP de inventario (4-6 dígitos)</label>
+        <input id="cfg-inv-pin" type="password" inputmode="numeric" maxlength="6" placeholder="Vacío = sin restricción" value="">
+      </div>
+      <button class="btn btn-primary" onclick="guardarConfigInvPin()">💾 Guardar</button>
+    </div>
+
+    <div class="card">
       <div class="card-hd">⚠️ Zona de peligro</div>
       <div style="margin-bottom:10px;font-size:12px;color:var(--txt2)">
         <strong>Borrar datos de prueba</strong> elimina productos, ventas y facturas de ejemplo. Tu configuración se conserva.
@@ -1276,6 +1286,24 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
 </div>
 
 </div><!-- /main -->
+
+<!-- Fuera de #main/las vistas a propósito: se debe poder abrir desde cualquier
+     pantalla (ej. Inventario), no solo desde Configuración — si quedara anidado
+     dentro de una vista con display:none, heredaría tamaño 0 y nunca se vería. -->
+<div class="modal-bg" id="modal-nip">
+  <div class="modal" style="max-width:320px">
+    <h3>🔒 NIP de inventario</h3>
+    <div class="field">
+      <label>Ingresa el NIP para continuar</label>
+      <input id="nip-input" type="password" inputmode="numeric" maxlength="6" placeholder="••••" autocomplete="off" onkeydown="if(event.key==='Enter')confirmarNip()">
+    </div>
+    <p id="nip-error" style="color:var(--rojo,#dc2626);font-size:12px;min-height:16px;margin:2px 0 0"></p>
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="btn btn-ghost" style="flex:1" onclick="cancelarNip()">Cancelar</button>
+      <button class="btn btn-primary btn-lg" style="flex:2" onclick="confirmarNip()">Confirmar</button>
+    </div>
+  </div>
+</div>
 
 <!-- BOTTOM NAV (mobile) -->
 <div id="bottom-nav">
@@ -1739,6 +1767,9 @@ function activarModoPro(lic) {
   const comisionEl = document.getElementById('cfg-recarga-comision');
   if (comisionEl) comisionEl.value = cfg.rechargeComision ?? 6;
 
+  const invPinEl = document.getElementById('cfg-inv-pin');
+  if (invPinEl) invPinEl.value = cfg.invPin || '';
+
   // Recargas es exclusivo de Versión 2 — se oculta el acceso (nav de escritorio
   // y móvil) para licencias de Versión 1, y si alguien ya estaba parado en esa
   // vista con una licencia que dejó de calificar (ej. se le cambió el tier),
@@ -1951,7 +1982,7 @@ async function copyScript() {
 //  STATE
 // ══════════════════════════════════════════════════════════
 let db = { productos:[], ventas:[], movimientos:[], facturas:[], caja:{abierta:false,fondo:0,fechaApertura:null}, cortes:[], recargas:[], vendedores:[] };
-let cfg = { url:'', syncSecret:'', nombre:'NovaPOS Demo', rfc:'', tel:'', dir:'', giro:'generico', iva:16, logo:'', ticketAncho:'80', rechargeComision:6 };
+let cfg = { url:'', syncSecret:'', nombre:'NovaPOS Demo', rfc:'', tel:'', dir:'', giro:'generico', iva:16, logo:'', ticketAncho:'80', rechargeComision:6, invPin:'' };
 let ticket = [];
 let editProdId = null;
 let syncing = false;
@@ -2536,6 +2567,56 @@ function guardarConfigRecargas() {
   toast('Configuración de recargas guardada ✓');
 }
 
+function guardarConfigInvPin() {
+  const v = (document.getElementById('cfg-inv-pin')||{}).value?.trim() || '';
+  if (v && !/^\d{4,6}$/.test(v)) { toast('El NIP debe ser de 4 a 6 dígitos (o déjalo vacío para quitarlo)','warn'); return; }
+  cfg.invPin = v;
+  saveCfg();
+  toast(v ? 'NIP de inventario activado ✓' : 'NIP de inventario desactivado ✓');
+}
+
+// ══════════════════════════════════════════════════════════
+//  NIP DE INVENTARIO — protege agregar/editar/eliminar productos
+//  y agregar stock escaneando. Si cfg.invPin está vacío (default),
+//  no se pide nada — es un candado opcional que el negocio activa
+//  si quiere, no un requisito nuevo para todos.
+//
+//  ⚠️ Mismo límite honesto que el resto del control de acceso de
+//  esta app: el NIP se compara en el navegador, así que alguien con
+//  conocimientos técnicos podría inspeccionar el código y saltárselo.
+//  Sirve para que el personal de venta no edite inventario por
+//  accidente o sin permiso, no como seguridad a prueba de todo.
+// ══════════════════════════════════════════════════════════
+let nipAccionPendiente = null;
+
+function requiereNip(accion) {
+  if (!cfg.invPin) { accion(); return; }
+  nipAccionPendiente = accion;
+  document.getElementById('nip-input').value = '';
+  document.getElementById('nip-error').textContent = '';
+  openModal('modal-nip');
+  setTimeout(() => document.getElementById('nip-input').focus(), 50);
+}
+
+function confirmarNip() {
+  const val = document.getElementById('nip-input').value.trim();
+  if (val === cfg.invPin) {
+    closeModal('modal-nip');
+    const accion = nipAccionPendiente;
+    nipAccionPendiente = null;
+    if (accion) accion();
+  } else {
+    document.getElementById('nip-error').textContent = 'NIP incorrecto';
+    document.getElementById('nip-input').value = '';
+    document.getElementById('nip-input').focus();
+  }
+}
+
+function cancelarNip() {
+  nipAccionPendiente = null;
+  closeModal('modal-nip');
+}
+
 // ══════════════════════════════════════════════════════════
 //  VENDEDORES — exclusivo Versión 2. Se eligen al abrir caja y quedan
 //  pegados a cada venta, al corte que genera el cierre, y al ticket
@@ -2721,7 +2802,8 @@ function updateBadge() {
 // ══════════════════════════════════════════════════════════
 //  INVENTARIO
 // ══════════════════════════════════════════════════════════
-function openProdModal(bc='') {
+function openProdModal(bc='') { requiereNip(() => _openProdModal(bc)); }
+function _openProdModal(bc='') {
   editProdId = null;
   document.getElementById('mprod-title').textContent = `➕ Nuevo ${getGiro().labelProducto.toLowerCase()}`;
   document.getElementById('p-sku-display').textContent = 'Se generará automáticamente';
@@ -2734,7 +2816,8 @@ function openProdModal(bc='') {
   openModal('modal-prod');
 }
 
-function editProd(id) {
+function editProd(id) { requiereNip(() => _editProd(id)); }
+function _editProd(id) {
   const p = db.productos.find(x=>x.id===id); if(!p)return;
   editProdId = id;
   document.getElementById('mprod-title').textContent = `✏️ Editar ${getGiro().labelProducto.toLowerCase()}`;
@@ -2806,7 +2889,8 @@ async function guardarProducto() {
   renderPosGrid();
 }
 
-async function eliminarProd(id) {
+async function eliminarProd(id) { requiereNip(() => _eliminarProd(id)); }
+async function _eliminarProd(id) {
   if (!confirm('¿Eliminar este producto?')) return;
   db.productos = db.productos.filter(p=>p.id!==id);
   saveAndDeleteFast('productos', id);
@@ -2816,16 +2900,19 @@ async function eliminarProd(id) {
 }
 
 function invScan() {
-  const bc  = document.getElementById('inv-bc').value.trim();
+  const bc = document.getElementById('inv-bc').value.trim();
+  if (!bc) { toast('Ingresa un código','warn'); return; }
+  requiereNip(() => _invScan(bc));
+}
+function _invScan(bc) {
   const qty = parseInt(document.getElementById('inv-qty').value)||1;
   const msg = document.getElementById('inv-scan-msg');
-  if (!bc) { toast('Ingresa un código','warn'); return; }
   const p = db.productos.find(x=>x.barcode===bc);
   if (!p) {
     msg.style.display='block'; msg.style.color='var(--amber)';
     msg.textContent = `Código "${bc}" no encontrado — se abrirá el formulario para agregar.`;
     document.getElementById('inv-bc').value='';
-    openProdModal(bc); return;
+    _openProdModal(bc); return;
   }
   p.stock += qty;
   msg.style.display='block'; msg.style.color='var(--verde)';
