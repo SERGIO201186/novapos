@@ -1464,7 +1464,8 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
 //  "Licencias" independiente). Ya no hace falta: ese proyecto
 //  se puede eliminar. Si ya tenías clientes activos ahí, copia
 //  sus claves manualmente a la pestaña "Licenses" del Sheet
-//  maestro de Omnia (productId: prod_novapos) antes de apagarlo.
+//  maestro de Omnia (productId: prod_novapos_v1 o prod_novapos_v2)
+//  antes de apagarlo.
 //
 //  ⚠️ Límite honesto: esto bloquea el uso normal y permite
 //  revocar acceso de forma remota, pero es JavaScript de cliente.
@@ -1474,7 +1475,10 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
 //  protección a prueba de ingeniería inversa.
 // ══════════════════════════════════════════════════════════
 const NOVAPOS_CONTROL_URL   = 'https://script.google.com/macros/s/AKfycbzhU4ElNfiCO808AgiXcIxj3cazaAdrtiXdpGJ_f-FnCb3LqsrseZbBSCJ7-WaMrxdWcA/exec'; // URL /exec del Control Maestro de Omnia
-const NOVAPOS_PRODUCT_ID    = 'prod_novapos'; // debe existir con este id en la pestaña "Products" del Sheet maestro
+// El catálogo de Products ya no tiene un "prod_novapos" genérico, solo las versiones
+// con precio (Versión 1 / Versión 2). Esta app acepta la licencia de cualquiera de las
+// dos, ya que ambas son NovaPOS igual — la única diferencia es qué módulos desbloquea.
+const NOVAPOS_PRODUCT_ID    = 'prod_novapos_v1,prod_novapos_v2'; // deben existir con estos ids en la pestaña "Products" del Sheet maestro
 const GRACIA_OFFLINE_HORAS  = 72; // horas que un cliente puede seguir trabajando sin internet
 const RECHEQUEO_HORAS       = 6;  // cada cuánto se revalida en segundo plano mientras está abierta
 
