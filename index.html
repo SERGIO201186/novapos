@@ -1776,6 +1776,21 @@ function doPost(e) {
     // 'upsert' normal a la hoja "recargas", igual que hace con ventas/facturas.
     if (action === 'recharge') return handleRecharge_(body);
 
+    // Resincronización completa (botón "Sincronizar todo" y los resets de
+    // "Borrar datos de prueba"/"Borrar TODO"): a diferencia de 'sync', que
+    // reemplaza una sola hoja, aquí 'data' es un objeto {nombreHoja: filas[]}
+    // con varias hojas a la vez.
+    if (action === 'sync_all') {
+      Object.keys(data || {}).forEach(sheetName2 => {
+        const sh = getSheet(sheetName2);
+        const shHeaders = sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0];
+        const lastRow = sh.getLastRow();
+        if (lastRow > 1) sh.deleteRows(2, lastRow-1);
+        (data[sheetName2] || []).forEach(d => sh.appendRow(shHeaders.map(h=>d[h]??'')));
+      });
+      return json({ok:true});
+    }
+
     const sheet = getSheet(sheetName || 'productos');
     const headers = sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0];
 
@@ -1854,6 +1869,7 @@ function getSheet(name) {
       movimientos: ['id','fecha','tipo','monto','concepto'],
       facturas:    ['id','folio','ventaId','fecha','clienteNombre','clienteRFC','clienteEmail','clienteDir','usoCFDI','metodoPago','formaPago','subtotal','iva','total','estatus','cfdiUUID'],
       recargas:    ['id','folio','fecha','compania','telefono','monto','comisionPct','gananciaEstimada','estatus','folioProveedor','mensaje'],
+      cortes:      ['apertura','cierre','fondo','ingresos','egresos','saldoFinal'],
       config:      ['key','value']
     };
     if (headers[name]) s.getRange(1,1,1,headers[name].length).setValues([headers[name]]);
