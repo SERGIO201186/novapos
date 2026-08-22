@@ -763,6 +763,10 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
     <div class="card">
       <div class="card-hd">🔑 Apertura / Cierre</div>
       <div id="caja-closed">
+        <div class="field" id="caja-vendedor-field" style="display:none">
+          <label>Vendedor en turno</label>
+          <select id="caja-vendedor"></select>
+        </div>
         <div class="field">
           <label>Fondo inicial ($)</label>
           <input type="number" id="caja-fondo" value="1000" min="0">
@@ -986,7 +990,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
   <div id="r-cortes" style="display:none">
     <div class="tbl-wrap">
       <table>
-        <thead><tr><th>Apertura</th><th>Cierre</th><th>Fondo</th><th>Ingresos</th><th>Egresos</th><th>Saldo final</th></tr></thead>
+        <thead><tr><th>Apertura</th><th>Cierre</th><th>Vendedor</th><th>Fondo</th><th>Ingresos</th><th>Egresos</th><th>Saldo final</th></tr></thead>
         <tbody id="rc-tbody"></tbody>
       </table>
     </div>
@@ -1244,6 +1248,16 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
           <strong>4.</strong> Prueba con una recarga pequeña desde la pantalla de Recargas antes de operar con clientes.
         </div>
       </details>
+    </div>
+
+    <div class="card" id="cfg-card-vendedores" style="display:none">
+      <div class="card-hd">🧑‍💼 Vendedores</div>
+      <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Da de alta a las personas que van a abrir caja. Al abrir, se elige quién está en turno, y eso queda pegado a cada venta que se haga, al corte de caja del cierre, y al ticket impreso. Si no das de alta a nadie, la caja se abre igual que antes, sin pedir vendedor.</p>
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <input id="cfg-vendedor-nombre" placeholder="Nombre del vendedor" style="flex:1" onkeydown="if(event.key==='Enter')agregarVendedor()">
+        <button class="btn btn-primary btn-sm" onclick="agregarVendedor()">+ Agregar</button>
+      </div>
+      <div id="cfg-vendedores-list"></div>
     </div>
 
     <div class="card">
@@ -1560,10 +1574,12 @@ async function enviarSoporte() {
 
 let licenciaInfo = null; // {clave, cliente, vence, productId, verificadoEn}
 
-// Recargas telefónicas es exclusivo de NovaPOS Versión 2 (la que trae cobros
-// electrónicos) — Versión 1 no lo incluye. Se checa el productId que regresó
-// el Control Maestro al verificar la licencia, no algo que el cliente pueda tocar.
-function tieneRecargas() { return licenciaInfo?.productId === NOVAPOS_PRODUCT_ID_V2; }
+// Se checa el productId que regresó el Control Maestro al verificar la
+// licencia (no algo que el cliente pueda tocar) para saber si esta copia es
+// Versión 2 — de ahí cuelgan los módulos exclusivos de ese tier (Recargas,
+// Vendedores).
+function esVersion2() { return licenciaInfo?.productId === NOVAPOS_PRODUCT_ID_V2; }
+function tieneRecargas() { return esVersion2(); }
 
 function lgSet(icon, title, msg, opts={}) {
   document.getElementById('lg-icon').textContent = icon;
@@ -1735,6 +1751,13 @@ function activarModoPro(lic) {
     showView('pos', document.querySelector(".dnav-btn[onclick*=\"'pos'\"]"));
   }
 
+  // Vendedores es igual de exclusivo de Versión 2 — la tarjeta de alta en
+  // Configuración se oculta en Versión 1, y el selector de la apertura de
+  // caja (poblarSelectVendedor) ya trae su propio checkeo de esVersion2().
+  const cardVendedores = document.getElementById('cfg-card-vendedores');
+  if (cardVendedores) cardVendedores.style.display = esVersion2() ? '' : 'none';
+  renderVendedores();
+
   if (cfg.url) {
     const urlEl = document.getElementById('cfg-url');
     if (urlEl) urlEl.value = cfg.url;
@@ -1883,11 +1906,12 @@ function getSheet(name) {
     s = ss.insertSheet(name);
     const headers = {
       productos:   ['id','sku','barcode','nombre','cat','proveedor','precio','costo','stock','stockmin','vence','unidad','desc'],
-      ventas:      ['id','folio','fecha','items','subtotal','descuento','total','recibido','cambio','metodo'],
+      ventas:      ['id','folio','fecha','items','subtotal','descuento','total','recibido','cambio','metodo','vendedor'],
       movimientos: ['id','fecha','tipo','monto','concepto'],
       facturas:    ['id','folio','ventaId','fecha','clienteNombre','clienteRFC','clienteEmail','clienteDir','usoCFDI','metodoPago','formaPago','subtotal','iva','total','estatus','cfdiUUID'],
       recargas:    ['id','folio','fecha','compania','telefono','monto','comisionPct','gananciaEstimada','estatus','folioProveedor','mensaje'],
-      cortes:      ['apertura','cierre','fondo','ingresos','egresos','saldoFinal'],
+      cortes:      ['apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor'],
+      vendedores:  ['id','nombre'],
       config:      ['key','value']
     };
     if (headers[name]) s.getRange(1,1,1,headers[name].length).setValues([headers[name]]);
@@ -1926,7 +1950,7 @@ async function copyScript() {
 // ══════════════════════════════════════════════════════════
 //  STATE
 // ══════════════════════════════════════════════════════════
-let db = { productos:[], ventas:[], movimientos:[], facturas:[], caja:{abierta:false,fondo:0,fechaApertura:null}, cortes:[], recargas:[] };
+let db = { productos:[], ventas:[], movimientos:[], facturas:[], caja:{abierta:false,fondo:0,fechaApertura:null}, cortes:[], recargas:[], vendedores:[] };
 let cfg = { url:'', syncSecret:'', nombre:'NovaPOS Demo', rfc:'', tel:'', dir:'', giro:'generico', iva:16, logo:'', ticketAncho:'80', rechargeComision:6 };
 let ticket = [];
 let editProdId = null;
@@ -1954,6 +1978,7 @@ function load() {
   if (!db.movimientos) db.movimientos = [];
   if (!db.cortes) db.cortes = [];
   if (!db.recargas) db.recargas = [];
+  if (!db.vendedores) db.vendedores = [];
   if (!db.caja) db.caja = {abierta:false,fondo:0,fechaApertura:null};
 }
 
@@ -2386,6 +2411,7 @@ async function syncNow() {
         facturas:    db.facturas || [],
         cortes:      db.cortes,
         recargas:    db.recargas || [],
+        vendedores:  db.vendedores || [],
       }
     });
     setSyncState(ok ? 'ok' : 'error');
@@ -2508,6 +2534,63 @@ function guardarConfigRecargas() {
   saveCfg();
   renderRecargas();
   toast('Configuración de recargas guardada ✓');
+}
+
+// ══════════════════════════════════════════════════════════
+//  VENDEDORES — exclusivo Versión 2. Se eligen al abrir caja y quedan
+//  pegados a cada venta, al corte que genera el cierre, y al ticket
+//  impreso, para saber quién atendió qué turno.
+// ══════════════════════════════════════════════════════════
+function renderVendedores() {
+  const list = document.getElementById('cfg-vendedores-list');
+  if (!list) return;
+  if (!db.vendedores.length) {
+    list.innerHTML = `<p style="font-size:12px;color:var(--txt2)">Sin vendedores dados de alta todavía.</p>`;
+  } else {
+    list.innerHTML = db.vendedores.map(v => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--border)">
+        <span style="font-size:13px">${esc(v.nombre)}</span>
+        <button class="btn btn-danger btn-sm" onclick="eliminarVendedor('${v.id}')">🗑</button>
+      </div>`).join('');
+  }
+  poblarSelectVendedor();
+}
+
+function agregarVendedor() {
+  const input = document.getElementById('cfg-vendedor-nombre');
+  const nombre = input.value.trim();
+  if (!nombre) { toast('Escribe el nombre del vendedor','warn'); return; }
+  const v = { id: uid(), nombre };
+  db.vendedores.push(v);
+  input.value = '';
+  save();
+  saveAndSyncFast('vendedores', v);
+  renderVendedores();
+  toast(`Vendedor "${nombre}" agregado ✓`);
+}
+
+function eliminarVendedor(id) {
+  if (!confirm('¿Eliminar este vendedor? Las ventas y cortes que ya se hicieron con su nombre no cambian.')) return;
+  db.vendedores = db.vendedores.filter(v => v.id !== id);
+  save();
+  saveAndDeleteFast('vendedores', id);
+  renderVendedores();
+  toast('Vendedor eliminado', 'warn');
+}
+
+// Muestra/oculta y llena el selector de "Vendedor en turno" en la apertura de
+// caja. Si no hay ningún vendedor dado de alta, se oculta y la caja se abre
+// igual que siempre — este módulo nunca bloquea la operación por sí solo.
+function poblarSelectVendedor() {
+  const field = document.getElementById('caja-vendedor-field');
+  const sel = document.getElementById('caja-vendedor');
+  if (!field || !sel) return;
+  const mostrar = esVersion2() && db.vendedores.length > 0;
+  field.style.display = mostrar ? '' : 'none';
+  if (!mostrar) return;
+  const actual = sel.value;
+  sel.innerHTML = db.vendedores.map(v => `<option value="${v.id}">${esc(v.nombre)}</option>`).join('');
+  if (db.vendedores.some(v => v.id === actual)) sel.value = actual;
 }
 
 // ══════════════════════════════════════════════════════════
@@ -2989,6 +3072,7 @@ async function confirmarVenta() {
     fecha: new Date().toISOString(),
     items: ticket.map(t=>({...t})),
     subtotal:sub, descuento:desc, total, recibido, cambio, metodo,
+    vendedor: db.caja.vendedorNombre || '',
   };
   db.ventas.push(venta);
   const mov = {
@@ -3039,6 +3123,7 @@ function buildTicketHTML(venta, paraImprimir = false) {
   const sep   = '--------------------------------';
 
   const metodoLabel = {efectivo:'Efectivo',tarjeta:'Tarjeta',transferencia:'Transferencia'}[venta.metodo]||venta.metodo;
+  const vendedorNombre = esc(venta.vendedor || '');
 
   const itemsHTML = venta.items.map(i => {
     const tot = mxn(i.precio * i.qty);
@@ -3069,6 +3154,7 @@ function buildTicketHTML(venta, paraImprimir = false) {
       ${rfc ? `<div style="text-align:center;font-size:11px">RFC: ${rfc}</div>` : ''}
       <div style="border-top:1px dashed #999;margin:6px 0"></div>
       <div style="display:flex;justify-content:space-between;font-size:11px"><span>Folio: <b>${venta.folio}</b></span><span>${fStr} ${hStr}</span></div>
+      ${vendedorNombre ? `<div style="font-size:11px">Vendedor: ${vendedorNombre}</div>` : ''}
       <div style="border-top:1px dashed #999;margin:6px 0"></div>
       ${itemsHTML}
       <div style="border-top:1px dashed #999;margin:6px 0"></div>
@@ -3092,6 +3178,7 @@ function buildTicketHTML(venta, paraImprimir = false) {
     ${rfc ? `<div class="tk-sub">RFC: ${rfc}</div>` : ''}
     <div class="tk-div"></div>
     <div class="tk-row"><span>Folio: <b>${venta.folio}</b></span><span>${fStr} ${hStr}</span></div>
+    ${vendedorNombre ? `<div class="tk-sub">Vendedor: ${vendedorNombre}</div>` : ''}
     <div class="tk-div"></div>
     ${itemsHTML}
     <div class="tk-div"></div>
@@ -3194,12 +3281,23 @@ function focusBarcode() {
 // ══════════════════════════════════════════════════════════
 async function abrirCaja() {
   const fondo = parseFloat(document.getElementById('caja-fondo').value)||0;
-  db.caja = {abierta:true, fondo, fechaApertura:new Date().toISOString()};
+  // Solo se pide vendedor si el campo está visible (Versión 2 con al menos
+  // un vendedor dado de alta) — en cualquier otro caso la caja se abre sin
+  // vendedor, igual que siempre.
+  const vendField = document.getElementById('caja-vendedor-field');
+  let vendedorId = '', vendedorNombre = '';
+  if (vendField && vendField.style.display !== 'none') {
+    const sel = document.getElementById('caja-vendedor');
+    vendedorId = sel.value;
+    const v = db.vendedores.find(x=>x.id===vendedorId);
+    vendedorNombre = v ? v.nombre : '';
+  }
+  db.caja = {abierta:true, fondo, fechaApertura:new Date().toISOString(), vendedorId, vendedorNombre};
   await saveAndSync();
   document.getElementById('caja-closed').style.display='none';
   document.getElementById('caja-open').style.display='block';
   updateBadge(); renderCaja();
-  toast('Caja abierta ✓');
+  toast(vendedorNombre ? `Caja abierta ✓ — turno de ${vendedorNombre}` : 'Caja abierta ✓');
 }
 
 async function cerrarCaja() {
@@ -3210,7 +3308,8 @@ async function cerrarCaja() {
   const egr  = movH.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+m.monto,0);
   db.cortes.push({
     apertura:db.caja.fechaApertura, cierre:new Date().toISOString(),
-    fondo:db.caja.fondo, ingresos:ing, egresos:egr, saldoFinal:db.caja.fondo+ing-egr
+    fondo:db.caja.fondo, ingresos:ing, egresos:egr, saldoFinal:db.caja.fondo+ing-egr,
+    vendedor: db.caja.vendedorNombre || '',
   });
   db.caja = {abierta:false,fondo:0,fechaApertura:null};
   await saveAndSync();
@@ -3248,7 +3347,7 @@ function renderCaja() {
   document.getElementById('caja-egr-hoy').textContent   = mxn(egr);
   document.getElementById('caja-vtashoy').textContent   = vtasH;
   document.getElementById('caja-estado-txt').textContent= db.caja.abierta
-    ? 'Abierta desde '+new Date(db.caja.fechaApertura).toLocaleTimeString('es-MX')
+    ? 'Abierta desde '+new Date(db.caja.fechaApertura).toLocaleTimeString('es-MX') + (db.caja.vendedorNombre ? ' · '+db.caja.vendedorNombre : '')
     : 'Caja cerrada';
 
   const list  = document.getElementById('mov-list');
@@ -3554,10 +3653,11 @@ function renderTop() {
 
 function renderCortes() {
   const tbody=document.getElementById('rc-tbody');
-  if(!db.cortes.length){tbody.innerHTML=`<tr><td colspan="6" style="text-align:center;color:var(--txt2);padding:20px">Sin cortes</td></tr>`;return;}
+  if(!db.cortes.length){tbody.innerHTML=`<tr><td colspan="7" style="text-align:center;color:var(--txt2);padding:20px">Sin cortes</td></tr>`;return;}
   tbody.innerHTML=[...db.cortes].reverse().map(c=>`<tr>
     <td style="font-size:11px">${new Date(c.apertura).toLocaleString('es-MX',{dateStyle:'short',timeStyle:'short'})}</td>
     <td style="font-size:11px">${new Date(c.cierre).toLocaleString('es-MX',{dateStyle:'short',timeStyle:'short'})}</td>
+    <td style="font-size:12px">${esc(c.vendedor)||'—'}</td>
     <td style="font-family:var(--mono)">${mxn(c.fondo)}</td>
     <td style="font-family:var(--mono);color:var(--verde)">${mxn(c.ingresos)}</td>
     <td style="font-family:var(--mono);color:var(--rojo)">${mxn(c.egresos)}</td>
@@ -3933,7 +4033,7 @@ function loadDemoData(giro) {
 // ══════════════════════════════════════════════════════════
 function resetDemo() {
   if (!confirm('¿Reiniciar todos los datos de demostración?')) return;
-  db = {productos:[],ventas:[],movimientos:[],facturas:[],caja:{abierta:false,fondo:0,fechaApertura:null},cortes:[],recargas:[]};
+  db = {productos:[],ventas:[],movimientos:[],facturas:[],caja:{abierta:false,fondo:0,fechaApertura:null},cortes:[],recargas:[],vendedores:[]};
   loadDemoData(cfg.giro);
   ticket=[];
   renderTicket();
@@ -3963,10 +4063,10 @@ function exportDB() {
 
 async function borrarTodo() {
   if (!confirm('⚠️ ¿Borrar TODOS los datos locales y en Google Sheets?')) return;
-  if (!confirm('Última confirmación: se eliminarán productos, ventas, facturas, movimientos, cortes y recargas.')) return;
+  if (!confirm('Última confirmación: se eliminarán productos, ventas, facturas, movimientos, cortes, recargas y vendedores.')) return;
   if (cfg.url) {
     setSyncState('syncing', 'Borrando en Sheets…');
-    await sheetsPost({ action:'sync_all', data:{ productos:[], ventas:[], movimientos:[], facturas:[], cortes:[], recargas:[] } });
+    await sheetsPost({ action:'sync_all', data:{ productos:[], ventas:[], movimientos:[], facturas:[], cortes:[], recargas:[], vendedores:[] } });
   }
   localStorage.removeItem('fp2_db');
   setSyncState('idle');
