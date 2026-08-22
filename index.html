@@ -615,7 +615,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
     <button class="dnav-btn" onclick="showView('inventario',this)"><span class="icon">📦</span><span id="nav-inv-label">Inventario</span></button>
     <button class="dnav-btn" onclick="showView('facturas',this)"><span class="icon">🧾</span>Facturas</button>
     <button class="dnav-btn" onclick="showView('caja',this)"><span class="icon">💰</span>Caja</button>
-    <button class="dnav-btn" onclick="showView('recargas',this)"><span class="icon">📱</span>Recargas</button>
+    <button class="dnav-btn" id="dnav-recargas" style="display:none" onclick="showView('recargas',this)"><span class="icon">📱</span>Recargas</button>
     <button class="dnav-btn" onclick="showView('reportes',this)"><span class="icon">📊</span>Reportes</button>
     <button class="dnav-btn" onclick="showView('config',this)"><span class="icon">⚙️</span>Config</button>
   </nav>
@@ -1222,7 +1222,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
       </details>
     </div>
 
-    <div class="card">
+    <div class="card" id="cfg-card-recargas" style="display:none">
       <div class="card-hd">📱 Recargas telefónicas</div>
       <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">NovaPOS no se conecta directo a Telcel/AT&T/Movistar: eso lo hace un mayorista con webservice propio (ej. Seycel, Taecel, Sivetel). Para no exponer las credenciales de ese proveedor en este archivo HTML/JS —visible para cualquiera con el código fuente—, la recarga se manda al mismo Apps Script de arriba (usa la misma URL y clave secreta) y es ahí, del lado del servidor, donde se agrega la llamada real al proveedor.</p>
       <div id="rec-cfg-status" class="sheets-status">
@@ -1270,7 +1270,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
     <button class="bnav-btn" onclick="showView('inventario',this)"><span class="bicon">📦</span><span id="bnav-inv-label">Inventario</span></button>
     <button class="bnav-btn" onclick="showView('facturas',this)"><span class="bicon">🧾</span>Facturas</button>
     <button class="bnav-btn" onclick="showView('caja',this)"><span class="bicon">💰</span>Caja</button>
-    <button class="bnav-btn" onclick="showView('recargas',this)"><span class="bicon">📱</span>Recargas</button>
+    <button class="bnav-btn" id="bnav-recargas" style="display:none" onclick="showView('recargas',this)"><span class="bicon">📱</span>Recargas</button>
     <button class="bnav-btn" onclick="showView('reportes',this)"><span class="bicon">📊</span>Reportes</button>
     <button class="bnav-btn" onclick="showView('config',this)"><span class="bicon">⚙️</span>Config</button>
   </div>
@@ -1477,8 +1477,9 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
 const NOVAPOS_CONTROL_URL   = 'https://script.google.com/macros/s/AKfycbzhU4ElNfiCO808AgiXcIxj3cazaAdrtiXdpGJ_f-FnCb3LqsrseZbBSCJ7-WaMrxdWcA/exec'; // URL /exec del Control Maestro de Omnia
 // El catálogo de Products ya no tiene un "prod_novapos" genérico, solo las versiones
 // con precio (Versión 1 / Versión 2). Esta app acepta la licencia de cualquiera de las
-// dos, ya que ambas son NovaPOS igual — la única diferencia es qué módulos desbloquea.
+// dos — la diferencia es qué módulos desbloquea cada una (ver NOVAPOS_PRODUCT_ID_V2).
 const NOVAPOS_PRODUCT_ID    = 'prod_novapos_v1,prod_novapos_v2'; // deben existir con estos ids en la pestaña "Products" del Sheet maestro
+const NOVAPOS_PRODUCT_ID_V2 = 'prod_novapos_v2'; // módulos exclusivos de Versión 2 (ej. Recargas) se habilitan solo si la licencia es de este id
 const GRACIA_OFFLINE_HORAS  = 72; // horas que un cliente puede seguir trabajando sin internet
 const RECHEQUEO_HORAS       = 6;  // cada cuánto se revalida en segundo plano mientras está abierta
 
@@ -1557,7 +1558,12 @@ async function enviarSoporte() {
   }
 }
 
-let licenciaInfo = null; // {clave, cliente, vence, verificadoEn}
+let licenciaInfo = null; // {clave, cliente, vence, productId, verificadoEn}
+
+// Recargas telefónicas es exclusivo de NovaPOS Versión 2 (la que trae cobros
+// electrónicos) — Versión 1 no lo incluye. Se checa el productId que regresó
+// el Control Maestro al verificar la licencia, no algo que el cliente pueda tocar.
+function tieneRecargas() { return licenciaInfo?.productId === NOVAPOS_PRODUCT_ID_V2; }
 
 function lgSet(icon, title, msg, opts={}) {
   document.getElementById('lg-icon').textContent = icon;
@@ -1597,7 +1603,7 @@ function interpretarRespuestaMaestro(data) {
     return { master: true, activo: false, cliente: data.clientName || '', vence: null, mensaje: 'Esta licencia venció. Contacta a tu distribuidor para renovarla.' };
   }
   if (data.status === 'active') {
-    return { master: true, activo: true, cliente: data.clientName || '', vence: data.expiresAt || null, mensaje: 'OK' };
+    return { master: true, activo: true, cliente: data.clientName || '', vence: data.expiresAt || null, productId: data.productId || '', mensaje: 'OK' };
   }
   return { master: true, activo: false, cliente: '', vence: null, mensaje: 'Respuesta inesperada del servidor.' };
 }
@@ -1627,7 +1633,7 @@ async function verificarLicenciaRemota() {
       lgSet('🚫','Licencia desactivada', data.mensaje || 'Tu licencia fue desactivada o venció. Contacta a tu distribuidor.',{wa:true});
       return;
     }
-    setLicenciaLocal({ clave: local.clave, cliente: data.cliente||'', vence: data.vence||null, verificadoEn: Date.now() });
+    setLicenciaLocal({ clave: local.clave, cliente: data.cliente||'', vence: data.vence||null, productId: data.productId||'', verificadoEn: Date.now() });
     licenciaInfo = getLicenciaLocal();
     document.getElementById('license-gate').style.display = 'none';
     iniciarApp();
@@ -1657,7 +1663,7 @@ async function lgVerificar() {
     const data = interpretarRespuestaMaestro(await consultarServidor(clave));
     if (data.master === false) { lgSet('🚫','Sistema no disponible', data.mensaje||'El servicio está temporalmente desactivado.',{wa:true}); return; }
     if (!data.activo) { lgSet('❌','Clave inválida o vencida', data.mensaje||'Verifica la clave o contacta a tu distribuidor.',{input:true}); return; }
-    setLicenciaLocal({ clave, cliente:data.cliente||'', vence:data.vence||null, verificadoEn: Date.now() });
+    setLicenciaLocal({ clave, cliente:data.cliente||'', vence:data.vence||null, productId:data.productId||'', verificadoEn: Date.now() });
     licenciaInfo = getLicenciaLocal();
     document.getElementById('license-gate').style.display = 'none';
     iniciarApp();
@@ -1680,7 +1686,7 @@ function programarRecheck() {
         document.getElementById('license-gate').style.display = 'flex';
         lgSet('🚫','Licencia desactivada', data.mensaje || 'Tu licencia fue desactivada. Contacta a tu distribuidor.',{wa:true});
       } else {
-        setLicenciaLocal({ ...local, cliente:data.cliente||local.cliente, vence:data.vence||local.vence, verificadoEn: Date.now() });
+        setLicenciaLocal({ ...local, cliente:data.cliente||local.cliente, vence:data.vence||local.vence, productId:data.productId||local.productId, verificadoEn: Date.now() });
       }
     } catch { /* sin conexión: no interrumpir, ya se validó al abrir la app */ }
   }, RECHEQUEO_HORAS*3600000);
@@ -1716,6 +1722,18 @@ function activarModoPro(lic) {
 
   const comisionEl = document.getElementById('cfg-recarga-comision');
   if (comisionEl) comisionEl.value = cfg.rechargeComision ?? 6;
+
+  // Recargas es exclusivo de Versión 2 — se oculta el acceso (nav de escritorio
+  // y móvil) para licencias de Versión 1, y si alguien ya estaba parado en esa
+  // vista con una licencia que dejó de calificar (ej. se le cambió el tier),
+  // se le regresa a Ventas.
+  const puedeRecargas = tieneRecargas();
+  document.querySelectorAll('#dnav-recargas, #bnav-recargas, #cfg-card-recargas').forEach(el => {
+    el.style.display = puedeRecargas ? '' : 'none';
+  });
+  if (!puedeRecargas && document.getElementById('view-recargas')?.classList.contains('active')) {
+    showView('pos', document.querySelector(".dnav-btn[onclick*=\"'pos'\"]"));
+  }
 
   if (cfg.url) {
     const urlEl = document.getElementById('cfg-url');
@@ -3265,6 +3283,10 @@ function renderMontosRecarga() {
 function getFolioRecarga() { return 'R-'+String(db.recargas.length+1).padStart(4,'0'); }
 
 async function procesarRecarga() {
+  // Defensa adicional a que el nav ya esconda el botón: Recargas es exclusivo
+  // de Versión 2, así que no debe poder procesarse con una licencia Versión 1.
+  if (!tieneRecargas()) { toast('Recargas es exclusivo de NovaPOS Versión 2. Contacta a tu distribuidor para actualizar.','err'); return; }
+
   const compania = document.getElementById('rec-compania').value;
   const telefono = document.getElementById('rec-telefono').value.trim();
   const monto    = parseFloat(document.getElementById('rec-monto').value);
