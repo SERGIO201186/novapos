@@ -1136,6 +1136,11 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
         <label>URL del Apps Script (Web App)</label>
         <input id="cfg-url" type="url" placeholder="https://script.google.com/macros/s/…/exec">
       </div>
+      <div class="field">
+        <label>Clave secreta de sincronización</label>
+        <input id="cfg-secret" type="password" placeholder="Elige una clave larga y guárdala también en el Apps Script">
+        <p style="font-size:11px;color:var(--txt2);margin-top:4px">Sin esta clave, cualquiera que descubra la URL del Apps Script podría leer o borrar los datos del negocio. Debe coincidir exactamente con <code>SYNC_SECRET</code> en el script (ver instrucciones abajo).</p>
+      </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-primary" onclick="guardarConfigSheets()">💾 Guardar y probar</button>
         <button class="btn btn-ghost" onclick="testConexion()">🔄 Probar conexión</button>
@@ -1146,9 +1151,9 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
         <div style="font-size:12px;color:var(--txt2);margin-top:8px;line-height:1.8;background:var(--bg);padding:12px;border-radius:8px">
           <strong>1.</strong> Ve a <a href="https://sheets.google.com" target="_blank" style="color:var(--indigo)">sheets.google.com</a> → crea una hoja nueva.<br>
           <strong>2.</strong> Ve a Extensiones → Apps Script → pega el código del backend.<br>
-          <strong>3.</strong> Ejecuta <code>setupSheets</code> para crear las pestañas.<br>
+          <strong>3.</strong> Reemplaza <code>SYNC_SECRET</code> al inicio del script por la misma clave que pongas arriba, y guarda.<br>
           <strong>4.</strong> Implementa como Aplicación Web → Cualquier persona → copia la URL.<br>
-          <strong>5.</strong> Pégala arriba y guarda.<br><br>
+          <strong>5.</strong> Pégala arriba junto con la clave y guarda.<br><br>
           <button class="btn btn-ghost btn-sm" onclick="copyScript()">📋 Copiar código Apps Script</button>
         </div>
       </details>
@@ -1620,6 +1625,8 @@ function activarModoPro(lic) {
   if (cfg.url) {
     const urlEl = document.getElementById('cfg-url');
     if (urlEl) urlEl.value = cfg.url;
+    const secretEl = document.getElementById('cfg-secret');
+    if (secretEl) secretEl.value = cfg.syncSecret || '';
     testConexion();
   }
 }
@@ -1640,8 +1647,19 @@ const APPS_SCRIPT_CODE = `
 
 const SS_ID = SpreadsheetApp.getActiveSpreadsheet().getId();
 
+// 🔒 Debe ser IDÉNTICA a la "Clave secreta de sincronización" que pongas en
+// NovaPOS (Configuración → Google Sheets). Sin esto, cualquiera que adivine
+// o encuentre la URL /exec podría leer, modificar o borrar todos los datos
+// del negocio — la URL de un Web App de Apps Script no es secreta por sí sola.
+const SYNC_SECRET = 'CAMBIA_ESTO_por_una_clave_larga_y_unica';
+
+function checkSecret(secret) {
+  return SYNC_SECRET && SYNC_SECRET !== 'CAMBIA_ESTO_por_una_clave_larga_y_unica' && secret === SYNC_SECRET;
+}
+
 function doGet(e) {
   const action = e.parameter.action || '';
+  if (!checkSecret(e.parameter.secret)) return json({ok:false, error:'unauthorized'});
   const sheet = getSheet(e.parameter.sheet || 'productos');
   if (action === 'get') {
     const rows = sheet.getDataRange().getValues();
@@ -1655,6 +1673,7 @@ function doGet(e) {
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
+    if (!checkSecret(body.secret)) return json({ok:false, error:'unauthorized'});
     const {action, sheet: sheetName, data, id} = body;
     const sheet = getSheet(sheetName || 'productos');
     const headers = sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0];
@@ -1737,7 +1756,7 @@ async function copyScript() {
 //  STATE
 // ══════════════════════════════════════════════════════════
 let db = { productos:[], ventas:[], movimientos:[], facturas:[], caja:{abierta:false,fondo:0,fechaApertura:null}, cortes:[] };
-let cfg = { url:'', nombre:'NovaPOS Demo', rfc:'', tel:'', dir:'', giro:'generico', iva:16, logo:'', ticketAncho:'80' };
+let cfg = { url:'', syncSecret:'', nombre:'NovaPOS Demo', rfc:'', tel:'', dir:'', giro:'generico', iva:16, logo:'', ticketAncho:'80' };
 let ticket = [];
 let editProdId = null;
 let syncing = false;
@@ -1770,6 +1789,10 @@ function load() {
 //  UTILS
 // ══════════════════════════════════════════════════════════
 const mxn = n => '$' + (+n||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});
+// Escapa HTML antes de insertar cualquier dato editable por el usuario (nombre de
+// producto, categoría, cliente de factura, concepto de caja, etc.) en innerHTML —
+// evita XSS almacenado si esos textos llegan a contener < > " ' &.
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6).toUpperCase();
 const hoy = () => new Date().toISOString().slice(0,10);
 function getCats(){ return [...new Set(db.productos.map(p=>p.cat).filter(Boolean))].sort(); }
@@ -2128,7 +2151,7 @@ function setSyncState(state, msg){
 async function sheetsGet(sheet) {
   if (!cfg.url) return null;
   try {
-    const r = await fetch(`${cfg.url}?action=get&sheet=${sheet}`);
+    const r = await fetch(`${cfg.url}?action=get&sheet=${sheet}&secret=${encodeURIComponent(cfg.syncSecret||'')}`);
     const j = await r.json();
     return j.ok ? j.data : null;
   } catch { return null; }
@@ -2138,7 +2161,7 @@ async function sheetsPost(body) {
   if (!cfg.url) return false;
   try {
     const r = await fetch(cfg.url, {
-      method:'POST', body:JSON.stringify(body),
+      method:'POST', body:JSON.stringify({ ...body, secret: cfg.syncSecret||'' }),
       headers:{'Content-Type':'text/plain'}
     });
     const j = await r.json();
@@ -2196,7 +2219,7 @@ async function testConexion() {
   if (!cfg.url) return;
   setSyncState('syncing','Probando…');
   try {
-    const r = await fetch(`${cfg.url}?action=get&sheet=config`);
+    const r = await fetch(`${cfg.url}?action=get&sheet=config&secret=${encodeURIComponent(cfg.syncSecret||'')}`);
     const j = await r.json();
     if (j.ok) {
       setSyncState('ok','Conectado');
@@ -2282,6 +2305,7 @@ async function guardarConfigEnSheets() {
 
 function guardarConfigSheets() {
   cfg.url = (document.getElementById('cfg-url')||{}).value?.trim() || '';
+  cfg.syncSecret = (document.getElementById('cfg-secret')||{}).value?.trim() || '';
   saveCfg();
   testConexion();
 }
@@ -2448,14 +2472,14 @@ function editProd(id) {
 
 function refreshCatDl() {
   const cats = getCats().length ? getCats() : getGiro().catsSugeridas;
-  document.getElementById('cat-dl').innerHTML = cats.map(c=>`<option value="${c}">`).join('');
+  document.getElementById('cat-dl').innerHTML = cats.map(c=>`<option value="${esc(c)}">`).join('');
   const poscat = document.getElementById('pos-cat');
   const cur = poscat.value;
-  poscat.innerHTML = '<option value="">Todas</option>' + getCats().map(c=>`<option value="${c}">${c}</option>`).join('');
+  poscat.innerHTML = '<option value="">Todas</option>' + getCats().map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');
   poscat.value = cur;
   const invcat = document.getElementById('inv-cat-f');
   const cur2 = invcat.value;
-  invcat.innerHTML = '<option value="">Todas las categorías</option>' + getCats().map(c=>`<option value="${c}">${c}</option>`).join('');
+  invcat.innerHTML = '<option value="">Todas las categorías</option>' + getCats().map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');
   invcat.value = cur2;
 }
 
@@ -2521,7 +2545,7 @@ function invScan() {
   }
   p.stock += qty;
   msg.style.display='block'; msg.style.color='var(--verde)';
-  msg.innerHTML = `✅ <strong>${p.nombre}</strong> → stock: ${p.stock-qty} + ${qty} = <strong>${p.stock}</strong>`;
+  msg.innerHTML = `✅ <strong>${esc(p.nombre)}</strong> → stock: ${p.stock-qty} + ${qty} = <strong>${p.stock}</strong>`;
   document.getElementById('inv-bc').value='';
   document.getElementById('inv-qty').value=1;
   saveAndSyncFast('productos', p);
@@ -2556,13 +2580,13 @@ function renderInv() {
     const sc = p.stock<=0?'badge-rojo':p.stock<=(p.stockmin||5)?'badge-amber':'badge-verde';
     const vb = p.vence ? `<span class="badge ${isExpiringSoon(p.vence)?'badge-amber':'badge-indigo'}">${p.vence}</span>` : '—';
     return `<tr>
-      <td><span style="font:600 11px var(--mono);color:var(--indigo)">${p.sku||'—'}</span></td>
-      <td><span style="font:500 11px var(--mono)">${p.barcode}</span></td>
-      <td><strong>${p.nombre}</strong></td>
-      <td><span class="badge badge-indigo">${p.cat||'—'}</span></td>
+      <td><span style="font:600 11px var(--mono);color:var(--indigo)">${esc(p.sku)||'—'}</span></td>
+      <td><span style="font:500 11px var(--mono)">${esc(p.barcode)}</span></td>
+      <td><strong>${esc(p.nombre)}</strong></td>
+      <td><span class="badge badge-indigo">${esc(p.cat)||'—'}</span></td>
       <td style="font-family:var(--mono)">${mxn(p.precio)}</td>
       <td style="font-family:var(--mono);color:var(--txt2)">${mxn(p.costo)}</td>
-      <td><span class="badge ${sc}">${p.stock} ${p.unidad||'pza'}</span></td>
+      <td><span class="badge ${sc}">${p.stock} ${esc(p.unidad)||'pza'}</span></td>
       <td class="campo-vence">${vb}</td>
       <td style="white-space:nowrap">
         <button class="btn btn-ghost btn-sm" onclick="editProd('${p.id}')">✏️</button>
@@ -2602,9 +2626,9 @@ function renderPosGrid() {
     const nostock = p.stock<=0;
     const low = p.stock>0&&p.stock<=(p.stockmin||5);
     const sc = nostock?'badge-rojo':low?'badge-amber':'badge-verde';
-    return `<div class="pg-card${nostock?' no-stock':''}" onclick="addToTicket('${p.barcode}')">
-      <div class="pg-code">${p.barcode}</div>
-      <div class="pg-name">${p.nombre}</div>
+    return `<div class="pg-card${nostock?' no-stock':''}" onclick="addToTicket('${esc(p.barcode)}')">
+      <div class="pg-code">${esc(p.barcode)}</div>
+      <div class="pg-name">${esc(p.nombre)}</div>
       <div class="pg-foot">
         <span class="pg-price">${mxn(p.precio)}</span>
         <span class="badge ${sc}">${p.stock}</span>
@@ -2664,7 +2688,7 @@ function renderTicket() {
   rows.innerHTML = ticket.map((t,i)=>`
     <div class="t-row">
       <div class="t-name">
-        <strong>${t.nombre}</strong>
+        <strong>${esc(t.nombre)}</strong>
         <small>${mxn(t.precio)} × ${t.qty}</small>
       </div>
       <div class="t-qty-wrap">
@@ -2804,10 +2828,10 @@ let ticketActual = null;
 let currentVentaId = null;
 
 function buildTicketHTML(venta, paraImprimir = false) {
-  const negocio = cfg.nombre || 'Mi Negocio';
-  const dir   = cfg.dir  || '';
-  const tel   = cfg.tel  || '';
-  const rfc   = cfg.rfc  || '';
+  const negocio = esc(cfg.nombre || 'Mi Negocio');
+  const dir   = esc(cfg.dir  || '');
+  const tel   = esc(cfg.tel  || '');
+  const rfc   = esc(cfg.rfc  || '');
   const fecha = new Date(venta.fecha);
   const fStr  = fecha.toLocaleDateString('es-MX', {day:'2-digit',month:'2-digit',year:'numeric'});
   const hStr  = fecha.toLocaleTimeString('es-MX', {hour:'2-digit',minute:'2-digit'});
@@ -2819,10 +2843,10 @@ function buildTicketHTML(venta, paraImprimir = false) {
     const tot = mxn(i.precio * i.qty);
     const lin = `${i.qty} x ${mxn(i.precio)}`.padEnd(16);
     if (paraImprimir) {
-      return `<div style="margin:3px 0"><div>${i.nombre}</div><div style="display:flex;justify-content:space-between"><span>${lin}</span><span>${tot}</span></div></div>`;
+      return `<div style="margin:3px 0"><div>${esc(i.nombre)}</div><div style="display:flex;justify-content:space-between"><span>${lin}</span><span>${tot}</span></div></div>`;
     }
     return `<div class="tk-row" style="margin:3px 0;flex-direction:column">
-      <span>${i.nombre}</span>
+      <span>${esc(i.nombre)}</span>
       <div class="tk-row"><span style="color:#666">${i.qty} × ${mxn(i.precio)}</span><span>${tot}</span></div>
     </div>`;
   }).join('');
@@ -2833,7 +2857,7 @@ function buildTicketHTML(venta, paraImprimir = false) {
         : `<div class="tk-row"><span>Descuento (${venta.descuento}%)</span><span style="color:#dc2626">-${mxn(venta.subtotal*venta.descuento/100)}</span></div>`)
     : '';
 
-  const logoHTML = cfg.logo ? `<div style="text-align:center;margin-bottom:6px"><img src="${cfg.logo}" style="max-width:110px;max-height:70px;object-fit:contain"></div>` : '';
+  const logoHTML = cfg.logo ? `<div style="text-align:center;margin-bottom:6px"><img src="${esc(cfg.logo)}" style="max-width:110px;max-height:70px;object-fit:contain"></div>` : '';
 
   if (paraImprimir) {
     return `
@@ -3034,7 +3058,7 @@ function renderCaja() {
     <div class="mov-item">
       <div class="mov-dot" style="background:${m.tipo==='ingreso'?'var(--verde)':'var(--rojo)'}"></div>
       <div class="mov-body">
-        <strong>${m.concepto}</strong>
+        <strong>${esc(m.concepto)}</strong>
         <span>${new Date(m.fecha).toLocaleTimeString('es-MX')}</span>
       </div>
       <div class="mov-amt" style="color:${m.tipo==='ingreso'?'var(--verde)':'var(--rojo)'}">
@@ -3113,7 +3137,7 @@ function verVenta(id) {
     <div style="font:500 11px var(--mono);color:var(--txt2);margin-bottom:10px">${v.folio} | ${new Date(v.fecha).toLocaleString('es-MX')} | ${v.metodo}</div>
     <table style="font-size:13px;margin-bottom:10px">
       <thead><tr><th>Producto</th><th>Qty</th><th>P.U.</th><th>Total</th></tr></thead>
-      <tbody>${v.items.map(i=>`<tr><td>${i.nombre}</td><td>${i.qty}</td><td>${mxn(i.precio)}</td><td>${mxn(i.precio*i.qty)}</td></tr>`).join('')}</tbody>
+      <tbody>${v.items.map(i=>`<tr><td>${esc(i.nombre)}</td><td>${i.qty}</td><td>${mxn(i.precio)}</td><td>${mxn(i.precio*i.qty)}</td></tr>`).join('')}</tbody>
     </table>
     <hr>
     <div style="display:flex;justify-content:space-between;padding:4px 0"><span>Subtotal</span><span style="font-family:var(--mono)">${mxn(v.subtotal)}</span></div>
@@ -3135,7 +3159,7 @@ function renderTop() {
   if(!sorted.length){tbody.innerHTML=`<tr><td colspan="4" style="text-align:center;color:var(--txt2);padding:20px">Sin datos</td></tr>`;return;}
   tbody.innerHTML=sorted.map((p,i)=>`<tr>
     <td><strong>${i+1}</strong></td>
-    <td>${p.nombre}</td>
+    <td>${esc(p.nombre)}</td>
     <td style="font-family:var(--mono)">${p.qty}</td>
     <td style="font:600 13px var(--mono);color:var(--verde)">${mxn(p.total)}</td>
   </tr>`).join('');
@@ -3293,8 +3317,8 @@ function renderFacturas() {
   tbody.innerHTML = facs.map(f=>`<tr style="${f.estatus==='cancelada'?'opacity:.55':''}">
     <td><span class="badge badge-indigo">${f.folio}</span></td>
     <td style="font-size:11px;white-space:nowrap">${new Date(f.fecha).toLocaleString('es-MX',{dateStyle:'short',timeStyle:'short'})}</td>
-    <td><strong>${f.clienteNombre}</strong></td>
-    <td style="font-family:var(--mono);font-size:11px">${f.clienteRFC}</td>
+    <td><strong>${esc(f.clienteNombre)}</strong></td>
+    <td style="font-family:var(--mono);font-size:11px">${esc(f.clienteRFC)}</td>
     <td style="font-family:var(--mono)">${mxn(f.total)}</td>
     <td><span class="badge ${f.estatus==='cancelada'?'badge-rojo':'badge-verde'}">${f.estatus==='cancelada'?'Cancelada':'Vigente'}</span></td>
     <td><button class="btn btn-ghost btn-sm" onclick="verFactura('${f.id}')">Ver</button></td>
@@ -3317,24 +3341,27 @@ function mostrarFacturaPreview(f) {
 }
 
 function buildFacturaHTML(f, paraImprimir=false) {
-  const negocio = cfg.nombre || 'Negocio';
-  const dir = cfg.dir || '';
-  const tel = cfg.tel || '';
-  const rfcNegocio = cfg.rfc || '';
-  const logoHTML = cfg.logo ? `<div style="text-align:center;margin-bottom:6px"><img src="${cfg.logo}" style="max-width:110px;max-height:70px;object-fit:contain"></div>` : '';
+  const negocio = esc(cfg.nombre || 'Negocio');
+  const dir = esc(cfg.dir || '');
+  const tel = esc(cfg.tel || '');
+  const rfcNegocio = esc(cfg.rfc || '');
+  const logoHTML = cfg.logo ? `<div style="text-align:center;margin-bottom:6px"><img src="${esc(cfg.logo)}" style="max-width:110px;max-height:70px;object-fit:contain"></div>` : '';
   const fecha = new Date(f.fecha);
   const fStr = fecha.toLocaleDateString('es-MX',{day:'2-digit',month:'2-digit',year:'numeric'});
   const hStr = fecha.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'});
   const metodoPagoLabel = {PUE:'Pago en una sola exhibición',PPD:'Pago en parcialidades / diferido'}[f.metodoPago]||f.metodoPago;
   const formaPagoLabel  = {'01':'Efectivo','03':'Transferencia','04':'Tarjeta de crédito','28':'Tarjeta de débito'}[f.formaPago]||f.formaPago;
   const cancelBadge = f.estatus==='cancelada' ? `<div style="text-align:center;color:#dc2626;font-weight:700;border:2px solid #dc2626;border-radius:6px;padding:4px;margin:6px 0">⚠ FACTURA CANCELADA</div>` : '';
+  const clienteNombre = esc(f.clienteNombre);
+  const clienteRFC = esc(f.clienteRFC);
+  const clienteDir = esc(f.clienteDir);
 
   const venta = db.ventas.find(v=>v.id===f.ventaId);
   const itemsHTML = venta ? venta.items.map(i=>{
     const tot = mxn(i.precio*i.qty);
     return paraImprimir
-      ? `<div style="margin:3px 0"><div>${i.nombre}</div><div style="display:flex;justify-content:space-between"><span>${i.qty} x ${mxn(i.precio)}</span><span>${tot}</span></div></div>`
-      : `<div class="tk-row" style="margin:3px 0;flex-direction:column"><span>${i.nombre}</span><div class="tk-row"><span style="color:#666">${i.qty} × ${mxn(i.precio)}</span><span>${tot}</span></div></div>`;
+      ? `<div style="margin:3px 0"><div>${esc(i.nombre)}</div><div style="display:flex;justify-content:space-between"><span>${i.qty} x ${mxn(i.precio)}</span><span>${tot}</span></div></div>`
+      : `<div class="tk-row" style="margin:3px 0;flex-direction:column"><span>${esc(i.nombre)}</span><div class="tk-row"><span style="color:#666">${i.qty} × ${mxn(i.precio)}</span><span>${tot}</span></div></div>`;
   }).join('') : '';
 
   if (paraImprimir) {
@@ -3349,9 +3376,9 @@ function buildFacturaHTML(f, paraImprimir=false) {
       <div style="text-align:center;font-weight:700;font-size:13px">COMPROBANTE DE VENTA</div>
       <div style="display:flex;justify-content:space-between;font-size:11px"><span>Folio: <b>${f.folio}</b></span><span>${fStr} ${hStr}</span></div>
       <div style="border-top:1px dashed #999;margin:6px 0"></div>
-      <div style="font-size:11px"><b>Cliente:</b> ${f.clienteNombre}</div>
-      <div style="font-size:11px"><b>RFC:</b> ${f.clienteRFC}</div>
-      ${f.clienteDir?`<div style="font-size:11px"><b>Dirección:</b> ${f.clienteDir}</div>`:''}
+      <div style="font-size:11px"><b>Cliente:</b> ${clienteNombre}</div>
+      <div style="font-size:11px"><b>RFC:</b> ${clienteRFC}</div>
+      ${f.clienteDir?`<div style="font-size:11px"><b>Dirección:</b> ${clienteDir}</div>`:''}
       <div style="font-size:11px"><b>Uso CFDI:</b> ${f.usoCFDI}</div>
       <div style="border-top:1px dashed #999;margin:6px 0"></div>
       ${itemsHTML}
@@ -3376,9 +3403,9 @@ function buildFacturaHTML(f, paraImprimir=false) {
     <div class="tk-div"></div>
     <div class="tk-row"><span>Folio: <b>${f.folio}</b></span><span>${fStr} ${hStr}</span></div>
     <div class="tk-div"></div>
-    <div style="font-size:12px;margin-bottom:4px"><b>Cliente:</b> ${f.clienteNombre}</div>
-    <div style="font-size:12px;margin-bottom:4px"><b>RFC:</b> ${f.clienteRFC}</div>
-    ${f.clienteDir?`<div style="font-size:12px;margin-bottom:4px"><b>Dirección:</b> ${f.clienteDir}</div>`:''}
+    <div style="font-size:12px;margin-bottom:4px"><b>Cliente:</b> ${clienteNombre}</div>
+    <div style="font-size:12px;margin-bottom:4px"><b>RFC:</b> ${clienteRFC}</div>
+    ${f.clienteDir?`<div style="font-size:12px;margin-bottom:4px"><b>Dirección:</b> ${clienteDir}</div>`:''}
     <div style="font-size:12px;margin-bottom:4px"><b>Uso CFDI:</b> ${f.usoCFDI}</div>
     <div class="tk-div"></div>
     ${itemsHTML}
