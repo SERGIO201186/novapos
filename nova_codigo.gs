@@ -1,0 +1,154 @@
+// NovaPOS — Apps Script Backend
+// Pega este código en script.google.com y despliega como Web App
+
+const SS_ID = SpreadsheetApp.getActiveSpreadsheet().getId();
+
+// 🔒 Debe ser IDÉNTICA a la "Clave secreta de sincronización" que pongas en
+// NovaPOS (Configuración → Google Sheets). Sin esto, cualquiera que adivine
+// o encuentre la URL /exec podría leer, modificar o borrar todos los datos
+// del negocio — la URL de un Web App de Apps Script no es secreta por sí sola.
+const SYNC_SECRET = 'NicolasBravo11centroVeracruzXalapa';
+
+function checkSecret(secret) {
+  return SYNC_SECRET && SYNC_SECRET !== 'CAMBIA_ESTO_por_una_clave_larga_y_unica' && secret === SYNC_SECRET;
+}
+
+function doGet(e) {
+  const action = e.parameter.action || '';
+  if (!checkSecret(e.parameter.secret)) return json({ok:false, error:'unauthorized'});
+  const sheet = getSheet(e.parameter.sheet || 'productos');
+  if (action === 'get') {
+    const rows = sheet.getDataRange().getValues();
+    const headers = rows[0];
+    const data = rows.slice(1).map(r => Object.fromEntries(headers.map((h,i)=>[h,r[i]])));
+    return json({ok:true, data});
+  }
+  return json({ok:false, error:'Unknown action'});
+}
+
+function doPost(e) {
+  try {
+    const body = JSON.parse(e.postData.contents);
+    if (!checkSecret(body.secret)) return json({ok:false, error:'unauthorized'});
+    const {action, sheet: sheetName, data, id} = body;
+
+    // La recarga no toca hojas directamente: solo habla con el proveedor y
+    // regresa el resultado. NovaPOS guarda el registro por separado con un
+    // 'upsert' normal a la hoja "recargas", igual que hace con ventas/facturas.
+    if (action === 'recharge') return handleRecharge_(body);
+
+    // Resincronización completa (botón "Sincronizar todo" y los resets de
+    // "Borrar datos de prueba"/"Borrar TODO"): a diferencia de 'sync', que
+    // reemplaza una sola hoja, aquí 'data' es un objeto {nombreHoja: filas[]}
+    // con varias hojas a la vez.
+    if (action === 'sync_all') {
+      Object.keys(data || {}).forEach(sheetName2 => {
+        const sh = getSheet(sheetName2);
+        const shHeaders = sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0];
+        const lastRow = sh.getLastRow();
+        if (lastRow > 1) sh.deleteRows(2, lastRow-1);
+        (data[sheetName2] || []).forEach(d => sh.appendRow(shHeaders.map(h=>d[h]??'')));
+      });
+      return json({ok:true});
+    }
+
+    const sheet = getSheet(sheetName || 'productos');
+    const headers = sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0];
+
+    if (action === 'upsert') {
+      // La mayoría de las hojas identifican cada fila por "id", pero "config"
+      // es key/value puro (encabezados "key","value") — sin este fallback,
+      // idCol quedaba en -1 para esa hoja, nunca encontraba la fila existente
+      // (upsert = siempre insertaba una nueva) y el valor de "key" se escribía
+      // en blanco porque data.key no existía (el cliente mandaba data.id).
+      const idField = headers.includes('id') ? 'id' : 'key';
+      const rows = sheet.getDataRange().getValues();
+      const idCol = headers.indexOf(idField);
+      const existing = rows.findIndex((r,i)=>i>0 && r[idCol]===data[idField]);
+      const row = headers.map(h => data[h] ?? '');
+      if (existing > 0) sheet.getRange(existing+1,1,1,row.length).setValues([row]);
+      else sheet.appendRow(row);
+      return json({ok:true});
+    }
+    if (action === 'delete') {
+      // Mismo fallback que en 'upsert' — por si algún día se borra una fila
+      // de la hoja "config" u otra hoja key/value.
+      const idField = headers.includes('id') ? 'id' : 'key';
+      const rows = sheet.getDataRange().getValues();
+      const idCol = headers.indexOf(idField);
+      const idx = rows.findIndex((r,i)=>i>0 && r[idCol]===id);
+      if (idx > 0) sheet.deleteRow(idx+1);
+      return json({ok:true});
+    }
+    if (action === 'sync') {
+      // Bulk sync: replace all rows
+      const lastRow = sheet.getLastRow();
+      if (lastRow > 1) sheet.deleteRows(2, lastRow-1);
+      data.forEach(d => sheet.appendRow(headers.map(h=>d[h]??'')));
+      return json({ok:true});
+    }
+    return json({ok:false, error:'Unknown action'});
+  } catch(err) {
+    return json({ok:false, error:err.toString()});
+  }
+}
+
+// 📲 Habla con el proveedor mayorista de recargas (Seycel, Taecel, Sivetel,
+// etc.) y regresa el resultado a NovaPOS. TODO: sustituye el cuerpo de
+// sendRecharge_ por la llamada real a la API de tu proveedor, usando
+// UrlFetchApp y credenciales guardadas en Archivo → Propiedades del proyecto
+// → Propiedades del script (Configuración ⚙️ del editor) — nunca las escribas
+// aquí en texto plano ni en NovaPOS, cualquiera con el HTML/JS las vería.
+function sendRecharge_(compania, telefono, monto) {
+  // Ejemplo de cómo quedaría (ajusta nombres de campos y endpoint a la
+  // documentación real que te dé tu proveedor al darte de alta):
+  //
+  // const props = PropertiesService.getScriptProperties();
+  // const resp = UrlFetchApp.fetch('https://api.tuproveedor.mx/recarga', {
+  //   method: 'post',
+  //   contentType: 'application/json',
+  //   payload: JSON.stringify({
+  //     compania, telefono, monto,
+  //     usuario: props.getProperty('PROVEEDOR_USUARIO'),
+  //     clave:   props.getProperty('PROVEEDOR_CLAVE'),
+  //   }),
+  //   muteHttpExceptions: true,
+  // });
+  // const data = JSON.parse(resp.getContentText());
+  // return { ok: !!data.exito, folioProveedor: data.folio || '', mensaje: data.mensaje || '' };
+
+  return { ok:false, mensaje:'Proveedor de recargas no configurado todavía — edita sendRecharge_ en este script.' };
+}
+
+function handleRecharge_(body) {
+  const { compania, telefono, monto } = body;
+  const resultado = sendRecharge_(compania, telefono, monto);
+  return resultado.ok
+    ? json({ ok:true, folioProveedor: resultado.folioProveedor||'', mensaje: resultado.mensaje||'' })
+    : json({ ok:false, error: resultado.mensaje||'Error del proveedor' });
+}
+
+function getSheet(name) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  let s = ss.getSheetByName(name);
+  if (!s) {
+    s = ss.insertSheet(name);
+    const headers = {
+      productos:   ['id','sku','barcode','nombre','cat','proveedor','precio','costo','stock','stockmin','vence','unidad','desc'],
+      ventas:      ['id','folio','fecha','items','subtotal','descuento','total','recibido','cambio','metodo','vendedor'],
+      movimientos: ['id','fecha','tipo','monto','concepto'],
+      facturas:    ['id','folio','ventaId','fecha','clienteNombre','clienteRFC','clienteEmail','clienteDir','usoCFDI','metodoPago','formaPago','subtotal','iva','total','estatus','cfdiUUID'],
+      recargas:    ['id','folio','fecha','compania','telefono','monto','comisionPct','gananciaEstimada','estatus','folioProveedor','mensaje'],
+      cortes:      ['apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor'],
+      vendedores:  ['id','nombre'],
+      config:      ['key','value']
+    };
+    if (headers[name]) s.getRange(1,1,1,headers[name].length).setValues([headers[name]]);
+  }
+  return s;
+}
+
+function json(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
