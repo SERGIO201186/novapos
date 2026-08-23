@@ -1867,17 +1867,26 @@ function doPost(e) {
     const headers = sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0];
 
     if (action === 'upsert') {
+      // La mayoría de las hojas identifican cada fila por "id", pero "config"
+      // es key/value puro (encabezados "key","value") — sin este fallback,
+      // idCol quedaba en -1 para esa hoja, nunca encontraba la fila existente
+      // (upsert = siempre insertaba una nueva) y el valor de "key" se escribía
+      // en blanco porque data.key no existía (el cliente mandaba data.id).
+      const idField = headers.includes('id') ? 'id' : 'key';
       const rows = sheet.getDataRange().getValues();
-      const idCol = headers.indexOf('id');
-      const existing = rows.findIndex((r,i)=>i>0 && r[idCol]===data.id);
+      const idCol = headers.indexOf(idField);
+      const existing = rows.findIndex((r,i)=>i>0 && r[idCol]===data[idField]);
       const row = headers.map(h => data[h] ?? '');
       if (existing > 0) sheet.getRange(existing+1,1,1,row.length).setValues([row]);
       else sheet.appendRow(row);
       return json({ok:true});
     }
     if (action === 'delete') {
+      // Mismo fallback que en 'upsert' — por si algún día se borra una fila
+      // de la hoja "config" u otra hoja key/value.
+      const idField = headers.includes('id') ? 'id' : 'key';
       const rows = sheet.getDataRange().getValues();
-      const idCol = headers.indexOf('id');
+      const idCol = headers.indexOf(idField);
       const idx = rows.findIndex((r,i)=>i>0 && r[idCol]===id);
       if (idx > 0) sheet.deleteRow(idx+1);
       return json({ok:true});
@@ -2537,15 +2546,19 @@ function guardarNegocioPro() {
 
 async function guardarConfigEnSheets() {
   if (!cfg.url) return;
+  // La hoja "config" es key/value (encabezados "key","value"), no "id","value"
+  // como el resto de las hojas — hay que mandar el campo con el nombre exacto
+  // del encabezado o el backend lo escribe en blanco (ver getSheet() en el
+  // Apps Script embebido, y el upsert genérico que ahora también acepta "key").
   const pairs = [
-    {id:'nombre_negocio', value:cfg.nombre},
-    {id:'rfc',            value:cfg.rfc},
-    {id:'telefono',       value:cfg.tel},
-    {id:'direccion',      value:cfg.dir},
-    {id:'iva',            value:String(cfg.iva)},
-    {id:'giro',           value:cfg.giro},
-    {id:'version',        value:'PRO-2.0'},
-    {id:'ultima_sync',    value:new Date().toISOString()},
+    {key:'nombre_negocio', value:cfg.nombre},
+    {key:'rfc',            value:cfg.rfc},
+    {key:'telefono',       value:cfg.tel},
+    {key:'direccion',      value:cfg.dir},
+    {key:'iva',            value:String(cfg.iva)},
+    {key:'giro',           value:cfg.giro},
+    {key:'version',        value:'PRO-2.0'},
+    {key:'ultima_sync',    value:new Date().toISOString()},
   ];
   for (const p of pairs) {
     await sheetsPost({ action:'upsert', sheet:'config', data:p });
