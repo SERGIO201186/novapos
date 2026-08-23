@@ -617,7 +617,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
     <button class="dnav-btn" onclick="showView('caja',this)"><span class="icon">💰</span>Caja</button>
     <button class="dnav-btn" id="dnav-recargas" style="display:none" onclick="showView('recargas',this)"><span class="icon">📱</span>Recargas</button>
     <button class="dnav-btn" onclick="showView('reportes',this)"><span class="icon">📊</span>Reportes</button>
-    <button class="dnav-btn" onclick="showView('config',this)"><span class="icon">⚙️</span>Config</button>
+    <button class="dnav-btn" onclick="abrirConfig(this)"><span class="icon">⚙️</span>Config</button>
   </nav>
   <div class="top-spacer"></div>
   <div id="sync-dot" title="Estado de sincronización" style="width:8px;height:8px;border-radius:50%;background:var(--txt3);flex-shrink:0;transition:.3s"></div>
@@ -764,8 +764,8 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
       <div class="card-hd">🔑 Apertura / Cierre</div>
       <div id="caja-closed">
         <div class="field" id="caja-vendedor-field" style="display:none">
-          <label>Vendedor en turno</label>
-          <select id="caja-vendedor"></select>
+          <label>NIP del vendedor en turno</label>
+          <input id="caja-vendedor-pin" type="password" inputmode="numeric" maxlength="6" placeholder="••••" autocomplete="off">
         </div>
         <div class="field">
           <label>Fondo inicial ($)</label>
@@ -1252,12 +1252,23 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
 
     <div class="card" id="cfg-card-vendedores" style="display:none">
       <div class="card-hd">🧑‍💼 Vendedores</div>
-      <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Da de alta a las personas que van a abrir caja. Al abrir, se elige quién está en turno, y eso queda pegado a cada venta que se haga, al corte de caja del cierre, y al ticket impreso. Si no das de alta a nadie, la caja se abre igual que antes, sin pedir vendedor.</p>
+      <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Da de alta a las personas que van a abrir caja, cada quien con su propio NIP. Al abrir turno, cada vendedor ingresa su NIP (no se elige de una lista) — así queda registrado quién abrió/cerró realmente, y eso se pega a cada venta, al corte de caja del cierre y al ticket impreso. Si no das de alta a nadie, la caja se abre igual que antes, sin pedir NIP.</p>
       <div style="display:flex;gap:8px;margin-bottom:12px">
         <input id="cfg-vendedor-nombre" placeholder="Nombre del vendedor" style="flex:1" onkeydown="if(event.key==='Enter')agregarVendedor()">
+        <input id="cfg-vendedor-nip" type="password" inputmode="numeric" maxlength="6" placeholder="NIP (4-6 díg.)" style="width:130px" onkeydown="if(event.key==='Enter')agregarVendedor()">
         <button class="btn btn-primary btn-sm" onclick="agregarVendedor()">+ Agregar</button>
       </div>
       <div id="cfg-vendedores-list"></div>
+    </div>
+
+    <div class="card" id="cfg-card-owner-pin" style="display:none">
+      <div class="card-hd">🔐 Acceso a Configuración</div>
+      <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Si lo configuras, esta pantalla de Configuración (incluida esta misma tarjeta) va a pedir este NIP cada vez que alguien intente entrar — solo el dueño debería conocerlo. Déjalo vacío para que Configuración quede abierta como hasta ahora.</p>
+      <div class="field">
+        <label>NIP del dueño (4-6 dígitos)</label>
+        <input id="cfg-owner-pin" type="password" inputmode="numeric" maxlength="6" placeholder="Vacío = sin restricción" value="">
+      </div>
+      <button class="btn btn-primary" onclick="guardarConfigOwnerPin()">💾 Guardar</button>
     </div>
 
     <div class="card">
@@ -1305,6 +1316,39 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
   </div>
 </div>
 
+<!-- Igual que #modal-nip: fuera de #main para que no herede display:none al
+     pedirse desde el botón de Config en cualquier vista. -->
+<div class="modal-bg" id="modal-owner-pin">
+  <div class="modal" style="max-width:320px">
+    <h3>🔐 Acceso a Configuración</h3>
+    <div class="field">
+      <label>Solo el dueño — ingresa el NIP para continuar</label>
+      <input id="owner-pin-input" type="password" inputmode="numeric" maxlength="6" placeholder="••••" autocomplete="off" onkeydown="if(event.key==='Enter')confirmarOwnerPin()">
+    </div>
+    <p id="owner-pin-error" style="color:var(--rojo,#dc2626);font-size:12px;min-height:16px;margin:2px 0 0"></p>
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="btn btn-ghost" style="flex:1" onclick="cancelarOwnerPin()">Cancelar</button>
+      <button class="btn btn-primary btn-lg" style="flex:2" onclick="confirmarOwnerPin()">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="modal-vendedor-pin">
+  <div class="modal" style="max-width:320px">
+    <h3>🔑 NIP del vendedor</h3>
+    <p id="vendedor-pin-nombre" style="font-size:13px;color:var(--txt2);margin-bottom:8px"></p>
+    <div class="field">
+      <label>Nuevo NIP (4-6 dígitos)</label>
+      <input id="vendedor-pin-input" type="password" inputmode="numeric" maxlength="6" placeholder="••••" autocomplete="off" onkeydown="if(event.key==='Enter')guardarNipVendedor()">
+    </div>
+    <p id="vendedor-pin-error" style="color:var(--rojo,#dc2626);font-size:12px;min-height:16px;margin:2px 0 0"></p>
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="btn btn-ghost" style="flex:1" onclick="cancelarNipVendedor()">Cancelar</button>
+      <button class="btn btn-primary btn-lg" style="flex:2" onclick="guardarNipVendedor()">Guardar</button>
+    </div>
+  </div>
+</div>
+
 <!-- BOTTOM NAV (mobile) -->
 <div id="bottom-nav">
   <div class="bnav-items">
@@ -1314,7 +1358,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
     <button class="bnav-btn" onclick="showView('caja',this)"><span class="bicon">💰</span>Caja</button>
     <button class="bnav-btn" id="bnav-recargas" style="display:none" onclick="showView('recargas',this)"><span class="bicon">📱</span>Recargas</button>
     <button class="bnav-btn" onclick="showView('reportes',this)"><span class="bicon">📊</span>Reportes</button>
-    <button class="bnav-btn" onclick="showView('config',this)"><span class="bicon">⚙️</span>Config</button>
+    <button class="bnav-btn" onclick="abrirConfig(this)"><span class="bicon">⚙️</span>Config</button>
   </div>
 </div>
 
@@ -1783,11 +1827,17 @@ function activarModoPro(lic) {
   }
 
   // Vendedores es igual de exclusivo de Versión 2 — la tarjeta de alta en
-  // Configuración se oculta en Versión 1, y el selector de la apertura de
-  // caja (poblarSelectVendedor) ya trae su propio checkeo de esVersion2().
+  // Configuración se oculta en Versión 1, y el campo de la apertura de
+  // caja (actualizarCampoVendedorTurno) ya trae su propio checkeo de esVersion2().
   const cardVendedores = document.getElementById('cfg-card-vendedores');
   if (cardVendedores) cardVendedores.style.display = esVersion2() ? '' : 'none';
   renderVendedores();
+
+  // NIP de dueño — mismo candado exclusivo de Versión 2 que Vendedores.
+  const cardOwnerPin = document.getElementById('cfg-card-owner-pin');
+  if (cardOwnerPin) cardOwnerPin.style.display = esVersion2() ? '' : 'none';
+  const ownerPinEl = document.getElementById('cfg-owner-pin');
+  if (ownerPinEl) ownerPinEl.value = cfg.ownerPin || '';
 
   if (cfg.url) {
     const urlEl = document.getElementById('cfg-url');
@@ -2012,7 +2062,7 @@ async function copyScript() {
 //  STATE
 // ══════════════════════════════════════════════════════════
 let db = { productos:[], ventas:[], movimientos:[], facturas:[], caja:{abierta:false,fondo:0,fechaApertura:null}, cortes:[], recargas:[], vendedores:[] };
-let cfg = { url:'', syncSecret:'', nombre:'NovaPOS Demo', rfc:'', tel:'', dir:'', giro:'generico', iva:16, logo:'', ticketAncho:'80', rechargeComision:6, invPin:'' };
+let cfg = { url:'', syncSecret:'', nombre:'NovaPOS Demo', rfc:'', tel:'', dir:'', giro:'generico', iva:16, logo:'', ticketAncho:'80', rechargeComision:6, invPin:'', ownerPin:'' };
 let ticket = [];
 let editProdId = null;
 let syncing = false;
@@ -2365,8 +2415,17 @@ function showView(v, el) {
 }
 
 function irAConfigRecargas() {
-  showView('config');
-  setTimeout(() => document.getElementById('cfg-recarga-comision')?.scrollIntoView({behavior:'smooth', block:'center'}), 50);
+  requiereOwnerPin(() => {
+    showView('config');
+    setTimeout(() => document.getElementById('cfg-recarga-comision')?.scrollIntoView({behavior:'smooth', block:'center'}), 50);
+  });
+}
+
+// Puerta de acceso a Configuración (incluye la tarjeta de vendedores, NIP de
+// inventario, URL de Sheets, etc.) — solo pide NIP si esVersion2() y hay un
+// NIP de dueño configurado; si no, entra directo, igual que siempre.
+function abrirConfig(el) {
+  requiereOwnerPin(() => showView('config', el));
 }
 
 function showTab(id, el) {
@@ -2475,7 +2534,9 @@ async function syncNow() {
         facturas:    db.facturas || [],
         cortes:      db.cortes,
         recargas:    db.recargas || [],
-        vendedores:  db.vendedores || [],
+        // El NIP de cada vendedor nunca sube a Sheets (igual que el NIP de
+        // inventario y el de dueño) — se queda solo en este dispositivo.
+        vendedores:  (db.vendedores || []).map(({id, nombre}) => ({id, nombre})),
       }
     });
     const ok = !!(res && res.ok);
@@ -2613,6 +2674,14 @@ function guardarConfigInvPin() {
   toast(v ? 'NIP de inventario activado ✓' : 'NIP de inventario desactivado ✓');
 }
 
+function guardarConfigOwnerPin() {
+  const v = (document.getElementById('cfg-owner-pin')||{}).value?.trim() || '';
+  if (v && !/^\d{4,6}$/.test(v)) { toast('El NIP debe ser de 4 a 6 dígitos (o déjalo vacío para quitarlo)','warn'); return; }
+  cfg.ownerPin = v;
+  saveCfg();
+  toast(v ? 'NIP de dueño activado ✓ — Configuración quedará protegida' : 'NIP de dueño desactivado ✓');
+}
+
 // ══════════════════════════════════════════════════════════
 //  NIP DE INVENTARIO — protege agregar/editar/eliminar productos
 //  y agregar stock escaneando. Si cfg.invPin está vacío (default),
@@ -2656,6 +2725,42 @@ function cancelarNip() {
 }
 
 // ══════════════════════════════════════════════════════════
+//  NIP DEL DUEÑO — protege la entrada completa a Configuración.
+//  Exclusivo Versión 2, igual que Vendedores. Si no hay NIP de dueño
+//  configurado (o la licencia no es V2), Configuración se abre directo,
+//  igual que siempre — nadie queda bloqueado por accidente.
+// ══════════════════════════════════════════════════════════
+let ownerPinAccionPendiente = null;
+
+function requiereOwnerPin(accion) {
+  if (!esVersion2() || !cfg.ownerPin) { accion(); return; }
+  ownerPinAccionPendiente = accion;
+  document.getElementById('owner-pin-input').value = '';
+  document.getElementById('owner-pin-error').textContent = '';
+  openModal('modal-owner-pin');
+  setTimeout(() => document.getElementById('owner-pin-input').focus(), 50);
+}
+
+function confirmarOwnerPin() {
+  const val = document.getElementById('owner-pin-input').value.trim();
+  if (val === cfg.ownerPin) {
+    closeModal('modal-owner-pin');
+    const accion = ownerPinAccionPendiente;
+    ownerPinAccionPendiente = null;
+    if (accion) accion();
+  } else {
+    document.getElementById('owner-pin-error').textContent = 'NIP incorrecto';
+    document.getElementById('owner-pin-input').value = '';
+    document.getElementById('owner-pin-input').focus();
+  }
+}
+
+function cancelarOwnerPin() {
+  ownerPinAccionPendiente = null;
+  closeModal('modal-owner-pin');
+}
+
+// ══════════════════════════════════════════════════════════
 //  VENDEDORES — exclusivo Versión 2. Se eligen al abrir caja y quedan
 //  pegados a cada venta, al corte que genera el cierre, y al ticket
 //  impreso, para saber quién atendió qué turno.
@@ -2667,23 +2772,32 @@ function renderVendedores() {
     list.innerHTML = `<p style="font-size:12px;color:var(--txt2)">Sin vendedores dados de alta todavía.</p>`;
   } else {
     list.innerHTML = db.vendedores.map(v => `
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--border)">
-        <span style="font-size:13px">${esc(v.nombre)}</span>
-        <button class="btn btn-danger btn-sm" onclick="eliminarVendedor('${v.id}')">🗑</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--border);gap:8px">
+        <span style="font-size:13px">${esc(v.nombre)} ${v.pin ? '<span style="color:var(--txt2)">🔑 NIP asignado</span>' : '<span style="color:var(--amber,#d97706)">⚠️ Sin NIP — no podrá abrir turno</span>'}</span>
+        <span style="display:flex;gap:6px;flex-shrink:0">
+          <button class="btn btn-ghost btn-sm" onclick="cambiarNipVendedor('${v.id}')">🔑 NIP</button>
+          <button class="btn btn-danger btn-sm" onclick="eliminarVendedor('${v.id}')">🗑</button>
+        </span>
       </div>`).join('');
   }
-  poblarSelectVendedor();
+  actualizarCampoVendedorTurno();
 }
 
 function agregarVendedor() {
-  const input = document.getElementById('cfg-vendedor-nombre');
-  const nombre = input.value.trim();
+  const inputNombre = document.getElementById('cfg-vendedor-nombre');
+  const inputNip = document.getElementById('cfg-vendedor-nip');
+  const nombre = inputNombre.value.trim();
+  const pin = inputNip.value.trim();
   if (!nombre) { toast('Escribe el nombre del vendedor','warn'); return; }
-  const v = { id: uid(), nombre };
+  if (!pin || !/^\d{4,6}$/.test(pin)) { toast('El NIP del vendedor debe ser de 4 a 6 dígitos','warn'); return; }
+  if (db.vendedores.some(x => x.pin === pin)) { toast('Ese NIP ya lo usa otro vendedor — cada quien necesita uno distinto','err'); return; }
+  const v = { id: uid(), nombre, pin };
   db.vendedores.push(v);
-  input.value = '';
+  inputNombre.value = ''; inputNip.value = '';
   save();
-  saveAndSyncFast('vendedores', v);
+  // El NIP no se sube a Sheets — se queda solo en este dispositivo, igual que
+  // el NIP de inventario y el de dueño, para no dejarlo en texto plano en la hoja.
+  saveAndSyncFast('vendedores', { id: v.id, nombre: v.nombre });
   renderVendedores();
   toast(`Vendedor "${nombre}" agregado ✓`);
 }
@@ -2697,19 +2811,47 @@ function eliminarVendedor(id) {
   toast('Vendedor eliminado', 'warn');
 }
 
-// Muestra/oculta y llena el selector de "Vendedor en turno" en la apertura de
-// caja. Si no hay ningún vendedor dado de alta, se oculta y la caja se abre
-// igual que siempre — este módulo nunca bloquea la operación por sí solo.
-function poblarSelectVendedor() {
+// Cambiar/asignar el NIP de un vendedor ya dado de alta — el dueño ya pasó
+// el candado de Configuración para llegar aquí, así que no se vuelve a pedir
+// el NIP anterior, solo se captura el nuevo.
+let vendedorPinEditId = null;
+function cambiarNipVendedor(id) {
+  const v = db.vendedores.find(x => x.id === id);
+  if (!v) return;
+  vendedorPinEditId = id;
+  document.getElementById('vendedor-pin-nombre').textContent = v.nombre;
+  document.getElementById('vendedor-pin-input').value = '';
+  document.getElementById('vendedor-pin-error').textContent = '';
+  openModal('modal-vendedor-pin');
+  setTimeout(() => document.getElementById('vendedor-pin-input').focus(), 50);
+}
+function guardarNipVendedor() {
+  const pin = document.getElementById('vendedor-pin-input').value.trim();
+  if (!/^\d{4,6}$/.test(pin)) { document.getElementById('vendedor-pin-error').textContent = 'Debe ser de 4 a 6 dígitos'; return; }
+  if (db.vendedores.some(x => x.id !== vendedorPinEditId && x.pin === pin)) {
+    document.getElementById('vendedor-pin-error').textContent = 'Ese NIP ya lo usa otro vendedor';
+    return;
+  }
+  const v = db.vendedores.find(x => x.id === vendedorPinEditId);
+  if (v) v.pin = pin;
+  save();
+  closeModal('modal-vendedor-pin');
+  vendedorPinEditId = null;
+  renderVendedores();
+  toast('NIP actualizado ✓');
+}
+function cancelarNipVendedor() {
+  vendedorPinEditId = null;
+  closeModal('modal-vendedor-pin');
+}
+
+// Muestra/oculta el campo de "NIP de turno" en la apertura de caja. Si no hay
+// ningún vendedor dado de alta, se oculta y la caja se abre igual que siempre
+// — este módulo nunca bloquea la operación por sí solo.
+function actualizarCampoVendedorTurno() {
   const field = document.getElementById('caja-vendedor-field');
-  const sel = document.getElementById('caja-vendedor');
-  if (!field || !sel) return;
-  const mostrar = esVersion2() && db.vendedores.length > 0;
-  field.style.display = mostrar ? '' : 'none';
-  if (!mostrar) return;
-  const actual = sel.value;
-  sel.innerHTML = db.vendedores.map(v => `<option value="${v.id}">${esc(v.nombre)}</option>`).join('');
-  if (db.vendedores.some(v => v.id === actual)) sel.value = actual;
+  if (!field) return;
+  field.style.display = (esVersion2() && db.vendedores.length > 0) ? '' : 'none';
 }
 
 // ══════════════════════════════════════════════════════════
@@ -3406,16 +3548,21 @@ function focusBarcode() {
 // ══════════════════════════════════════════════════════════
 async function abrirCaja() {
   const fondo = parseFloat(document.getElementById('caja-fondo').value)||0;
-  // Solo se pide vendedor si el campo está visible (Versión 2 con al menos
-  // un vendedor dado de alta) — en cualquier otro caso la caja se abre sin
-  // vendedor, igual que siempre.
+  // Solo se pide NIP si el campo está visible (Versión 2 con al menos un
+  // vendedor dado de alta) — en cualquier otro caso la caja se abre sin
+  // vendedor, igual que siempre. Se identifica al vendedor por su NIP (no
+  // se elige de una lista) para que quede registrado quién realmente abrió,
+  // no solo quién pudo haber seleccionado el nombre de otra persona.
   const vendField = document.getElementById('caja-vendedor-field');
   let vendedorId = '', vendedorNombre = '';
   if (vendField && vendField.style.display !== 'none') {
-    const sel = document.getElementById('caja-vendedor');
-    vendedorId = sel.value;
-    const v = db.vendedores.find(x=>x.id===vendedorId);
-    vendedorNombre = v ? v.nombre : '';
+    const pinInput = document.getElementById('caja-vendedor-pin');
+    const pin = pinInput.value.trim();
+    if (!pin) { toast('Ingresa tu NIP para abrir turno','warn'); return; }
+    const v = db.vendedores.find(x => x.pin && x.pin === pin);
+    if (!v) { toast('NIP no reconocido','err'); pinInput.value=''; pinInput.focus(); return; }
+    vendedorId = v.id; vendedorNombre = v.nombre;
+    pinInput.value = '';
   }
   db.caja = {abierta:true, fondo, fechaApertura:new Date().toISOString(), vendedorId, vendedorNombre};
   await saveAndSync();
