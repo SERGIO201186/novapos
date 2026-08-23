@@ -44,7 +44,7 @@ function doPost(e) {
     if (action === 'sync_all') {
       Object.keys(data || {}).forEach(sheetName2 => {
         const sh = getSheet(sheetName2);
-        const shHeaders = sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0];
+        const shHeaders = ensureHeaders_(sh, sheetName2);
         const lastRow = sh.getLastRow();
         if (lastRow > 1) sh.deleteRows(2, lastRow-1);
         (data[sheetName2] || []).forEach(d => sh.appendRow(shHeaders.map(h=>d[h]??'')));
@@ -53,7 +53,7 @@ function doPost(e) {
     }
 
     const sheet = getSheet(sheetName || 'productos');
-    const headers = sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0];
+    const headers = ensureHeaders_(sheet, sheetName || 'productos');
 
     if (action === 'upsert') {
       // La mayoría de las hojas identifican cada fila por "id", pero "config"
@@ -128,24 +128,45 @@ function handleRecharge_(body) {
     : json({ ok:false, error: resultado.mensaje||'Error del proveedor' });
 }
 
+// Encabezados esperados por hoja — usados tanto al crear una hoja nueva
+// (getSheet) como para reponerlos si una hoja ya existe pero se vació por
+// completo a mano (ensureHeaders_, que usa sync_all antes de escribir).
+const SHEET_HEADERS = {
+  productos:   ['id','sku','barcode','nombre','cat','proveedor','precio','costo','stock','stockmin','vence','unidad','desc'],
+  ventas:      ['id','folio','fecha','items','subtotal','descuento','total','recibido','cambio','metodo','vendedor'],
+  movimientos: ['id','fecha','tipo','monto','concepto'],
+  facturas:    ['id','folio','ventaId','fecha','clienteNombre','clienteRFC','clienteEmail','clienteDir','usoCFDI','metodoPago','formaPago','subtotal','iva','total','estatus','cfdiUUID'],
+  recargas:    ['id','folio','fecha','compania','telefono','monto','comisionPct','gananciaEstimada','estatus','folioProveedor','mensaje'],
+  cortes:      ['apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor'],
+  vendedores:  ['id','nombre'],
+  config:      ['key','value'],
+};
+
 function getSheet(name) {
   const ss = SpreadsheetApp.openById(SS_ID);
   let s = ss.getSheetByName(name);
   if (!s) {
     s = ss.insertSheet(name);
-    const headers = {
-      productos:   ['id','sku','barcode','nombre','cat','proveedor','precio','costo','stock','stockmin','vence','unidad','desc'],
-      ventas:      ['id','folio','fecha','items','subtotal','descuento','total','recibido','cambio','metodo','vendedor'],
-      movimientos: ['id','fecha','tipo','monto','concepto'],
-      facturas:    ['id','folio','ventaId','fecha','clienteNombre','clienteRFC','clienteEmail','clienteDir','usoCFDI','metodoPago','formaPago','subtotal','iva','total','estatus','cfdiUUID'],
-      recargas:    ['id','folio','fecha','compania','telefono','monto','comisionPct','gananciaEstimada','estatus','folioProveedor','mensaje'],
-      cortes:      ['apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor'],
-      vendedores:  ['id','nombre'],
-      config:      ['key','value']
-    };
-    if (headers[name]) s.getRange(1,1,1,headers[name].length).setValues([headers[name]]);
+    if (SHEET_HEADERS[name]) s.getRange(1,1,1,SHEET_HEADERS[name].length).setValues([SHEET_HEADERS[name]]);
   }
   return s;
+}
+
+// Si alguien borra a mano TODO el contenido de una hoja (incluyendo la fila
+// de encabezados, no solo los datos), getSheet() la sigue encontrando por
+// nombre y no la vuelve a preparar — solo hace eso para hojas nuevas. Sin
+// esto, sync_all truena al pedir sh.getRange(1,1,1,0) sobre una hoja sin
+// ninguna columna con contenido. Regresa el arreglo de encabezados vigente.
+function ensureHeaders_(sh, name) {
+  const esperados = SHEET_HEADERS[name];
+  if (!esperados) return sh.getRange(1,1,1,Math.max(sh.getLastColumn(),1)).getValues()[0];
+  const actuales = sh.getLastColumn() > 0 ? sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0] : [];
+  const hayEncabezados = actuales.some(c => c !== '' && c !== null);
+  if (!hayEncabezados) {
+    sh.getRange(1,1,1,esperados.length).setValues([esperados]);
+    return esperados;
+  }
+  return actuales;
 }
 
 function json(obj) {
