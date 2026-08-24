@@ -89,7 +89,8 @@ function doPost(e) {
     // terminal real (id, pos_id, store_id, operating_mode).
     if (action === 'mp_listar_dispositivos') {
       return mpProxy_('GET', '/terminals/v1/list?limit=50&offset=0', null, function(data) {
-        var lista = (data.terminals || []).map(function(t) { return { id: t.id }; });
+        // La respuesta real viene anidada: {data:{terminals:[...]}, paging:{...}}
+        var lista = ((data.data && data.data.terminals) || []).map(function(t) { return { id: t.id }; });
         return json({ ok:true, data: lista });
       });
     }
