@@ -2405,7 +2405,7 @@ async function iniciarApp() {
   document.getElementById('cfg-iva').value    = cfg.iva ?? 16;
   document.getElementById('cfg-ticket-ancho').value = cfg.ticketAncho || '80';
   document.querySelectorAll('.modal-bg').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m) m.classList.remove('open'); }));
-  setTimeout(()=>document.getElementById('pos-barcode').focus(), 300);
+  focusBarcode();
 }
 
 // Arrancar verificación de licencia (control remoto del distribuidor) en cuanto carga la página
@@ -2426,7 +2426,7 @@ function showView(v, el) {
     if (idx>=0) document.querySelectorAll('.bnav-btn')[idx]?.classList.add('active');
     if (mIdx>=0) document.querySelectorAll('.dnav-btn')[mIdx]?.classList.add('active');
   }
-  if (v==='pos') { renderPosGrid(); setTimeout(()=>document.getElementById('pos-barcode').focus(),100); }
+  if (v==='pos') { renderPosGrid(); focusBarcode(); }
   if (v==='inventario') renderInv();
   if (v==='facturas') { renderFacturas(); renderVentasParaFacturar(); }
   if (v==='caja') renderCaja();
@@ -3627,7 +3627,18 @@ ${html}
   setTimeout(() => { try { if (!win.closed) win.close(); } catch(e){} }, 5000);
 }
 
+// En una PC/laptop con lector de código de barras (funciona como teclado),
+// mantener el foco en este campo deja "cobrar por escaneo" listo sin tocar
+// nada. En una tablet o celular (pantalla táctil, sin mouse) hace lo
+// contrario: abre el teclado en pantalla y lo tapa todo, dando la impresión
+// de que hay que escanear sí o sí para vender — cuando ya se puede tocar
+// cualquier producto de la cuadrícula. "(hover:hover) and (pointer:fine)"
+// es la señal estándar de "hay un mouse/trackpad", ausente en táctil puro.
+function hayLectorFisico() {
+  return window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+}
 function focusBarcode() {
+  if (!hayLectorFisico()) return;
   setTimeout(()=>{ const el=document.getElementById('pos-barcode'); if(el) el.focus(); },150);
 }
 
