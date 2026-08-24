@@ -16,6 +16,13 @@ function checkSecret(secret) {
 function doGet(e) {
   const action = e.parameter.action || '';
   if (!checkSecret(e.parameter.secret)) return json({ok:false, error:'unauthorized'});
+
+  // Los NIP (dueño, inventario, cada vendedor) viven en Propiedades del
+  // script, no en ninguna hoja — así alguien con quien compartas la hoja de
+  // cálculo (un contador, un socio) puede ver ventas/inventario sin ver los
+  // NIP, que solo son visibles desde el editor de Apps Script.
+  if (action === 'get_pins') return json({ok:true, data: getPins_()});
+
   const sheet = getSheet(e.parameter.sheet || 'productos');
   if (action === 'get') {
     const rows = sheet.getDataRange().getValues();
@@ -36,6 +43,24 @@ function doPost(e) {
     // regresa el resultado. NovaPOS guarda el registro por separado con un
     // 'upsert' normal a la hoja "recargas", igual que hace con ventas/facturas.
     if (action === 'recharge') return handleRecharge_(body);
+
+    // Guarda un NIP en Propiedades del script (nunca en una hoja). scope
+    // 'owner'/'inventario' son un solo valor; 'vendedor' guarda un mapa
+    // {vendedorId: pin} porque puede haber varios. pin vacío = quitar/borrar.
+    if (action === 'set_pin') {
+      const props = PropertiesService.getScriptProperties();
+      if (body.scope === 'owner') props.setProperty('OWNER_PIN', body.pin || '');
+      else if (body.scope === 'inventario') props.setProperty('INV_PIN', body.pin || '');
+      else if (body.scope === 'vendedor' && body.vendedorId) {
+        let mapa = {};
+        try { mapa = JSON.parse(props.getProperty('VENDEDOR_PINS') || '{}'); } catch(e) {}
+        if (body.pin) mapa[body.vendedorId] = body.pin; else delete mapa[body.vendedorId];
+        props.setProperty('VENDEDOR_PINS', JSON.stringify(mapa));
+      } else {
+        return json({ok:false, error:'scope inválido'});
+      }
+      return json({ok:true});
+    }
 
     // Resincronización completa (botón "Sincronizar todo" y los resets de
     // "Borrar datos de prueba"/"Borrar TODO"): a diferencia de 'sync', que
@@ -128,6 +153,17 @@ function handleRecharge_(body) {
     : json({ ok:false, error: resultado.mensaje||'Error del proveedor' });
 }
 
+function getPins_() {
+  const props = PropertiesService.getScriptProperties();
+  let vendedorPins = {};
+  try { vendedorPins = JSON.parse(props.getProperty('VENDEDOR_PINS') || '{}'); } catch(e) {}
+  return {
+    ownerPin: props.getProperty('OWNER_PIN') || '',
+    invPin:   props.getProperty('INV_PIN') || '',
+    vendedorPins,
+  };
+}
+
 // Encabezados esperados por hoja — usados tanto al crear una hoja nueva
 // (getSheet) como para reponerlos si una hoja ya existe pero se vació por
 // completo a mano (ensureHeaders_, que usa sync_all antes de escribir).
@@ -138,7 +174,7 @@ const SHEET_HEADERS = {
   facturas:    ['id','folio','ventaId','fecha','clienteNombre','clienteRFC','clienteEmail','clienteDir','usoCFDI','metodoPago','formaPago','subtotal','iva','total','estatus','cfdiUUID'],
   recargas:    ['id','folio','fecha','compania','telefono','monto','comisionPct','gananciaEstimada','estatus','folioProveedor','mensaje'],
   cortes:      ['apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor'],
-  vendedores:  ['id','nombre','pin'],
+  vendedores:  ['id','nombre'],
   config:      ['key','value'],
 };
 
