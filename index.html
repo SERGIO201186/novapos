@@ -204,6 +204,9 @@ body{
   display:flex;align-items:center;justify-content:space-between;
 }
 
+/* ══ CAJA: apertura/cierre + movimiento manual lado a lado ══ */
+#caja-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+
 /* ══ STAT TILES ══ */
 .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
 .tiles.tiles-3{grid-template-columns:repeat(3,1fr)}
@@ -535,6 +538,10 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
 
   #pos-grid{grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
 
+  /* Dos columnas (Apertura/Cierre + Movimiento manual) no caben en una
+     pantalla de celular sin aplastar los botones y textos de cada tarjeta. */
+  #caja-grid{grid-template-columns:1fr}
+
   /* bottom nav safe area */
   #toast{bottom:calc(var(--bottom-h) + 8px)}
 }
@@ -542,6 +549,13 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
 @media(max-width:380px){
   #pos-grid{grid-template-columns:1fr 1fr}
   .tiles{grid-template-columns:1fr 1fr}
+  /* En 320-380px el topbar (logo + soporte + saldo de caja) no cabe con su
+     padding/gap normal y el badge de saldo se sale del viewport. */
+  #topbar{gap:4px;padding:0 10px}
+  .logo-by{display:none}
+  #caja-badge{padding:5px 7px;gap:4px}
+  #caja-badge .val{font-size:12px}
+  #btn-soporte-topbar{padding:6px 8px}
 }
 
 @media(min-width:641px){
@@ -623,7 +637,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
   <div id="sync-dot" title="Estado de sincronización" style="width:8px;height:8px;border-radius:50%;background:var(--txt3);flex-shrink:0;transition:.3s"></div>
   <span id="sync-label" style="font-size:11px;color:var(--txt3)">Sin conectar</span>
   <button id="btn-install" onclick="installPWA()" style="display:none" class="btn btn-ghost btn-sm" title="Instalar NovaPOS">📲 Instalar</button>
-  <button class="btn btn-ghost btn-sm" onclick="solicitarSoporte()" title="Solicitar soporte">🆘</button>
+  <button id="btn-soporte-topbar" class="btn btn-ghost btn-sm" onclick="solicitarSoporte()" title="Solicitar soporte">🆘</button>
   <div id="caja-badge">
     <span class="lbl">Caja&nbsp;</span>
     <span class="val" id="badge-saldo">$0.00</span>
@@ -759,7 +773,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
     <div class="tile indigo"><div class="t-lbl">Ventas hoy</div><div class="t-val" id="caja-vtashoy">0</div></div>
   </div>
 
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;flex-wrap:wrap" id="caja-grid">
+  <div id="caja-grid">
     <div class="card">
       <div class="card-hd">🔑 Apertura / Cierre</div>
       <div id="caja-closed">
@@ -1211,8 +1225,10 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-primary" onclick="guardarConfigSheets()">💾 Guardar y probar</button>
         <button class="btn btn-ghost" onclick="testConexion()">🔄 Probar conexión</button>
+        <button class="btn btn-ghost" onclick="descargarDeSheetsManual()">⬇ Descargar de Sheets</button>
         <button class="btn btn-ghost" onclick="syncNow()">⬆ Sincronizar ahora</button>
       </div>
+      <p style="font-size:11px;color:var(--txt2);margin-top:8px">⬇ trae lo que haya en la nube a este dispositivo (lo reemplaza aquí). ⬆ hace lo contrario: sube lo de este dispositivo y reemplaza lo que había en la nube. Úsalos según de qué lado está la información más reciente — nunca combinan ambos lados automáticamente.</p>
       <details style="margin-top:14px">
         <summary style="font:600 12px var(--sans);cursor:pointer;color:var(--indigo)">📋 Instrucciones de configuración</summary>
         <div style="font-size:12px;color:var(--txt2);margin-top:8px;line-height:1.8;background:var(--bg);padding:12px;border-radius:8px">
@@ -2361,8 +2377,12 @@ function cargarProductosDeGiro(giro) {
 // ══════════════════════════════════════════════════════════
 //  ARRANQUE DE LA APP (solo se llama si el acceso fue verificado)
 // ══════════════════════════════════════════════════════════
-function iniciarApp() {
+async function iniciarApp() {
   load();
+  // Dispositivo nuevo (o recién reinstalado) que YA tiene configurada la URL de
+  // Sheets pero su base local está vacía: antes caía directo a datos de demo,
+  // ocultando lo que otros dispositivos ya habían subido. Intentar bajarlo primero.
+  if (!db.productos.length && cfg.url) await cargarDeSheets(false);
   if (!db.productos.length) loadDemoData();
   updateBadge();
   setSyncState('idle');
@@ -2523,13 +2543,19 @@ function saveAndDeleteFast(sheet, id) {
 
 async function syncNow() {
   if (!cfg.url) { toast('Configura la URL del Apps Script primero','warn'); return; }
+  // 'sync_all' reemplaza TODO lo que hay en la hoja con lo de este dispositivo
+  // (ver doPost en APPS_SCRIPT_CODE) — es de una sola vía, no combina con lo
+  // que ya esté en la nube. Confirmar explícitamente evita que un dispositivo
+  // con base local vacía/vieja borre por accidente lo que subieron otros.
+  const resumen = `${db.productos.length} productos, ${db.ventas.length} ventas, ${(db.facturas||[]).length} facturas, ${(db.recargas||[]).length} recargas`;
+  if (!confirm(`Esto va a REEMPLAZAR todo lo que hay en Google Sheets con los datos de ESTE dispositivo (${resumen}).\n\nSi otro dispositivo tiene información que no está aquí, se perderá. ¿Continuar?`)) return;
   setSyncState('syncing');
   try {
     const res = await sheetsPost({
       action: 'sync_all',
       data: {
         productos:   db.productos,
-        ventas:      db.ventas,
+        ventas:      db.ventas.map(v => ({ ...v, items: JSON.stringify(v.items||[]) })),
         movimientos: db.movimientos,
         facturas:    db.facturas || [],
         cortes:      db.cortes,
@@ -2546,6 +2572,57 @@ async function syncNow() {
     setSyncState('error');
     toast('Error de conexión: ' + e.message, 'err');
   }
+}
+
+// Trae lo que hay en Google Sheets y reemplaza la base local con eso — es el
+// complemento de syncNow(): ese solo sube, este solo baja. Hace falta para
+// que un dispositivo nuevo (o uno que se quedó atrás) pueda ponerse al día
+// con lo que subieron otros dispositivos, cosa que antes no existía.
+async function cargarDeSheets(avisar = true) {
+  if (!cfg.url) return false;
+  setSyncState('syncing');
+  try {
+    const [productos, ventasRaw, movimientos, facturas, cortes, recargas, vendedores] = await Promise.all([
+      sheetsGet('productos'), sheetsGet('ventas'), sheetsGet('movimientos'),
+      sheetsGet('facturas'), sheetsGet('cortes'), sheetsGet('recargas'), sheetsGet('vendedores'),
+    ]);
+    if (productos === null) throw new Error('Sin respuesta del Apps Script');
+    const ventas = (ventasRaw||[]).map(v => {
+      let items = [];
+      try { items = typeof v.items === 'string' ? JSON.parse(v.items || '[]') : (v.items || []); }
+      catch { items = []; }
+      return { ...v, items };
+    });
+    db.productos   = productos || [];
+    db.ventas      = ventas;
+    db.movimientos = movimientos || [];
+    db.facturas    = facturas || [];
+    db.cortes      = cortes || [];
+    db.recargas    = recargas || [];
+    db.vendedores  = vendedores || [];
+    save();
+    setSyncState('ok', 'Descargado de Google Sheets');
+    if (avisar) toast('Datos descargados de Google Sheets ✓', 'ok');
+    return true;
+  } catch(e) {
+    setSyncState('error');
+    if (avisar) toast('Error al descargar: ' + e.message, 'err');
+    return false;
+  }
+}
+
+function refrescarVistasTrasDescarga() {
+  renderPosGrid(); renderInv(); renderCaja(); renderReportes();
+  renderFacturas(); renderVentasParaFacturar(); renderRecargas();
+  updateBadge();
+}
+
+async function descargarDeSheetsManual() {
+  if (!cfg.url) { toast('Configura la URL del Apps Script primero','warn'); return; }
+  if ((db.productos.length || db.ventas.length) &&
+      !confirm('Esto reemplazará los datos de ESTE dispositivo con los que hay en Google Sheets. ¿Continuar?')) return;
+  const ok = await cargarDeSheets();
+  if (ok) refrescarVistasTrasDescarga();
 }
 
 async function testConexion() {
@@ -2651,11 +2728,19 @@ async function guardarConfigEnSheets() {
   }
 }
 
-function guardarConfigSheets() {
+async function guardarConfigSheets() {
   cfg.url = (document.getElementById('cfg-url')||{}).value?.trim() || '';
   cfg.syncSecret = (document.getElementById('cfg-secret')||{}).value?.trim() || '';
   saveCfg();
-  testConexion();
+  await testConexion();
+  // Si este dispositivo aún no tiene nada capturado, es casi seguro que están
+  // conectándolo a una hoja que YA tiene datos de otro dispositivo — bajarlos
+  // en vez de dejar la base vacía hasta que alguien le dé "Sincronizar ahora"
+  // (lo cual, sin esto, terminaría subiendo vacío y borrando la hoja).
+  if (cfg.url && !db.productos.length && !db.ventas.length) {
+    const ok = await cargarDeSheets();
+    if (ok) refrescarVistasTrasDescarga();
+  }
 }
 
 function guardarConfigRecargas() {
@@ -3365,7 +3450,10 @@ async function confirmarVenta() {
   if (cfg.url) {
     setSyncState('syncing');
     Promise.all([
-      sheetsUpsert('ventas', venta),
+      // 'items' es un arreglo de objetos: Google Sheets solo guarda texto plano,
+      // así que hay que mandarlo como JSON (cargarDeSheets lo vuelve a parsear
+      // al bajarlo) — sin esto, la celda quedaba con "[object Object]" ilegible.
+      sheetsUpsert('ventas', { ...venta, items: JSON.stringify(venta.items||[]) }),
       sheetsUpsert('movimientos', mov),
       ...[...afectados.values()].map(p => sheetsUpsert('productos', p)),
     ]).then(results => setSyncState(results.every(r => r && r.ok) ? 'ok' : 'error'))
