@@ -80,9 +80,16 @@ function doPost(e) {
     // URL que las otras dos, sin haberse podido verificar 100% contra la
     // documentación oficial completa — pruébalo con un cobro pequeño antes
     // de usarlo con clientes reales.
+    //
+    // Listar dispositivos usa la API de Terminales (/terminals/v1/list) y no
+    // /point/integration-api/devices: en esta cuenta esa segunda devuelve
+    // "At least one policy returned UNAUTHORIZED" aunque el token sea válido
+    // y la terminal ya esté en modo PDV — son productos/permisos distintos
+    // dentro de Mercado Pago. /terminals/v1/list sí respondió con la
+    // terminal real (id, pos_id, store_id, operating_mode).
     if (action === 'mp_listar_dispositivos') {
-      return mpProxy_('GET', '/point/integration-api/devices', null, function(data) {
-        var lista = Array.isArray(data) ? data : (Array.isArray(data.devices) ? data.devices : []);
+      return mpProxy_('GET', '/terminals/v1/list?limit=50&offset=0', null, function(data) {
+        var lista = (data.terminals || []).map(function(t) { return { id: t.id }; });
         return json({ ok:true, data: lista });
       });
     }
