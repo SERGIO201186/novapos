@@ -1531,7 +1531,10 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
         <div class="lbl">Terminal Mercado Pago</div>
         <div class="num" id="mp-cobro-status-num" style="font-size:14px">Creando cobro…</div>
       </div>
-      <button class="btn btn-ghost btn-full" style="margin-top:10px" onclick="cancelarCobroMP()">✖ Cancelar cobro</button>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button class="btn btn-ghost" style="flex:1" onclick="verificarCobroMPManual()">🔄 Verificar de nuevo</button>
+        <button class="btn btn-ghost" style="flex:1" onclick="cancelarCobroMP()">✖ Cancelar cobro</button>
+      </div>
     </div>
     <div id="cobrar-botones-normales" style="display:flex;gap:8px;margin-top:14px">
       <button class="btn btn-ghost" style="flex:1" onclick="closeModal('modal-cobrar')">Cancelar</button>
@@ -2049,12 +2052,7 @@ function doPost(e) {
 
     // Cobro con terminal física Mercado Pago Point. El Access Token vive en
     // Propiedades del script (MP_ACCESS_TOKEN) — nunca en NovaPOS ni en la
-    // hoja de cálculo. Basado en la documentación pública confirmada de
-    // "Point Integration API" para crear/cancelar payment-intents; la
-    // consulta de estatus (mp_estado_intent) se infiere del mismo patrón de
-    // URL que las otras dos, sin haberse podido verificar 100% contra la
-    // documentación oficial completa — pruébalo con un cobro pequeño antes
-    // de usarlo con clientes reales.
+    // hoja de cálculo.
     //
     // Listar dispositivos usa la API de Terminales (/terminals/v1/list) y no
     // /point/integration-api/devices: en esta cuenta esa segunda devuelve
@@ -2064,21 +2062,42 @@ function doPost(e) {
     // terminal real (id, pos_id, store_id, operating_mode).
     if (action === 'mp_listar_dispositivos') {
       return mpProxy_('GET', '/terminals/v1/list?limit=50&offset=0', null, function(data) {
-        var lista = (data.terminals || []).map(function(t) { return { id: t.id }; });
+        // La respuesta real viene anidada: {data:{terminals:[...]}, paging:{...}}
+        var lista = ((data.data && data.data.terminals) || []).map(function(t) { return { id: t.id }; });
         return json({ ok:true, data: lista });
       });
     }
+    // Cobrar con la terminal usa la API de "orders" (/v1/orders), confirmada
+    // directamente contra la documentación oficial (create, consultar por id
+    // y cancelar) — no /point/integration-api/devices/.../payment-intents,
+    // que es la que dio UNAUTHORIZED arriba. El monto va como texto decimal
+    // ("24.00"), no en centavos. El estatus de "pago aprobado" se identifica
+    // por transactions.payments[0].status === 'approved' (el término que usa
+    // Mercado Pago en todas sus APIs de pago) — no se pudo ver un ejemplo con
+    // ese valor exacto en la documentación disponible (solo "created",
+    // "canceled" y "refunded"), así que pruébalo con un cobro pequeño antes
+    // de confiar en él con clientes reales.
     if (action === 'mp_crear_intent') {
-      return mpProxy_('POST', '/point/integration-api/devices/' + body.deviceId + '/payment-intents', {
-        amount: Math.round(body.amount * 100), // MP no acepta decimales: 1500 = $15.00
-        additional_info: { external_reference: body.externalReference || '', print_on_terminal: true },
+      return mpProxy_('POST', '/v1/orders', {
+        type: 'point',
+        external_reference: body.externalReference || '',
+        expiration_time: 'PT16M',
+        transactions: { payments: [ { amount: Number(body.amount).toFixed(2) } ] },
+        config: { point: { terminal_id: body.deviceId, print_on_terminal: 'no_ticket' } },
+        description: 'Venta NovaPOS',
       }, function(data) { return json({ ok:true, data: { paymentIntentId: data.id } }); });
     }
     if (action === 'mp_estado_intent') {
-      return mpProxy_('GET', '/point/integration-api/devices/' + body.deviceId + '/payment-intents/' + body.paymentIntentId);
+      return mpProxy_('GET', '/v1/orders/' + body.paymentIntentId, null, function(data) {
+        // Log temporal para confirmar contra un cobro real qué valores manda
+        // Mercado Pago en status/paymentStatus — quitar una vez confirmado.
+        Logger.log('mp_estado_intent respuesta cruda: ' + JSON.stringify(data));
+        var pago = (data.transactions && data.transactions.payments && data.transactions.payments[0]) || {};
+        return json({ ok:true, data: { status: data.status, paymentStatus: pago.status || '' } });
+      });
     }
     if (action === 'mp_cancelar_intent') {
-      return mpProxy_('DELETE', '/point/integration-api/devices/' + body.deviceId + '/payment-intents/' + body.paymentIntentId);
+      return mpProxy_('POST', '/v1/orders/' + body.paymentIntentId + '/cancel');
     }
 
     // Resincronización completa (botón "Sincronizar todo" y los resets de
@@ -2194,6 +2213,9 @@ function mpProxy_(method, path, payload, onOk) {
     headers: { Authorization: 'Bearer ' + token },
     muteHttpExceptions: true,
   };
+  // La API de "orders" exige X-Idempotency-Key en cada POST (crear, cancelar,
+  // reembolsar) para no duplicar la operación si la petición se reintenta.
+  if (options.method === 'post') options.headers['X-Idempotency-Key'] = Utilities.getUuid();
   if (payload) {
     options.contentType = 'application/json';
     options.payload = JSON.stringify(payload);
@@ -3844,15 +3866,16 @@ function setMpEstadoTexto(texto) {
   if (el) el.textContent = texto;
 }
 
-// Nombres de estatus confirmados por la documentación pública de Mercado
-// Pago Point (OPEN → ON_TERMINAL → FINISHED/CANCELED). Cualquier otro valor
-// se muestra tal cual llegue, en vez de fallar, por si acaso hay alguno más
-// que no se alcanzó a verificar contra la documentación oficial completa.
+// Estatus de la "order" (nivel general) confirmados contra la documentación
+// oficial de Mercado Pago: created → processed/canceled/expired/refunded.
+// El que decide si la venta se cierra es paymentStatus (más abajo), no este
+// — este solo es para el texto que ve el cajero mientras espera.
 const MP_ESTADO_LABEL = {
-  OPEN: 'Enviando cobro a la terminal…',
-  ON_TERMINAL: 'Sigue las instrucciones en la terminal…',
-  FINISHED: 'Pago confirmado ✓',
-  CANCELED: 'Cobro cancelado',
+  created: 'Esperando que el cliente pague en la terminal…',
+  processed: 'Pago confirmado ✓',
+  canceled: 'Cobro cancelado',
+  expired: 'El cobro expiró en la terminal',
+  refunded: 'Cobro reembolsado',
 };
 
 async function cobrarConMP() {
@@ -3874,40 +3897,63 @@ async function cobrarConMP() {
     return;
   }
   mpIntentActual = res.data.paymentIntentId;
-  setMpEstadoTexto(MP_ESTADO_LABEL.OPEN);
+  setMpEstadoTexto(MP_ESTADO_LABEL.created);
 
   let intentos = 0;
-  const MAX_INTENTOS = 45; // ~90s a 2s por intento
+  const MAX_INTENTOS = 90; // ~3 min a 2s por intento — la primera vinculación con la terminal puede tardar
   mpPollTimer = setInterval(async () => {
     intentos++;
-    if (!mpIntentActual) return; // ya se canceló desde acá
-    const estado = await mpEstadoIntent(mpIntentActual);
-    if (!estado || !estado.ok) {
-      // Un error puntual de red no cancela el cobro — la terminal puede
-      // seguir procesando aunque este dispositivo no haya podido consultar
-      // el estatus esta vez. Se avisa y se reintenta en el siguiente ciclo.
-      setMpEstadoTexto('No se pudo consultar el estatus, reintentando…');
-      if (intentos >= MAX_INTENTOS) {
-        ocultarUiCobroMP();
-        toast('No se pudo confirmar el cobro — revisa la terminal y el historial de Mercado Pago antes de reintentar','err');
-      }
-      return;
-    }
-    const status = estado.data && estado.data.status;
-    setMpEstadoTexto(MP_ESTADO_LABEL[status] || ('Estatus: ' + status));
-    if (status === 'FINISHED') {
+    const resuelto = await chequearEstadoMP();
+    if (resuelto) { clearInterval(mpPollTimer); mpPollTimer = null; return; }
+    if (intentos >= MAX_INTENTOS) {
       clearInterval(mpPollTimer); mpPollTimer = null;
-      ocultarUiCobroMP();
-      await confirmarVenta();
-    } else if (status === 'CANCELED') {
-      clearInterval(mpPollTimer); mpPollTimer = null;
-      document.getElementById('mp-cobro-status-box').className = 'cambio-box neg';
-      toast('El cobro se canceló en la terminal', 'warn');
-    } else if (intentos >= MAX_INTENTOS) {
-      clearInterval(mpPollTimer); mpPollTimer = null;
-      toast('El cobro está tardando demasiado — revisa la terminal', 'warn');
+      // OJO: no se llama ocultarUiCobroMP() aquí a propósito — el cobro pudo
+      // haberse completado en la terminal aunque este dispositivo ya haya
+      // dejado de consultarlo automáticamente. Se deja el id (mpIntentActual)
+      // y los botones de "Verificar de nuevo"/"Cancelar" visibles en vez de
+      // dar por perdido el cobro, para no cobrarle dos veces al cliente.
+      setMpEstadoTexto('No se confirmó automáticamente. Antes de cobrar de nuevo, presiona "Verificar de nuevo" o revisa tu cuenta de Mercado Pago.');
+      toast('El cobro está tardando más de lo normal — verifica manualmente antes de reintentar', 'warn');
     }
   }, 2000);
+}
+
+// Comparte la lógica de interpretar la respuesta de mpEstadoIntent entre el
+// polling automático y el botón "🔄 Verificar de nuevo" — ese botón existe
+// porque una order puede terminar aprobándose en la terminal después de que
+// el polling automático se rindió por tardanza, y sin una forma de volver a
+// consultar el mismo id se corre el riesgo de cobrarle dos veces al cliente.
+async function chequearEstadoMP() {
+  if (!mpIntentActual) return true;
+  const estado = await mpEstadoIntent(mpIntentActual);
+  if (!estado || !estado.ok) {
+    setMpEstadoTexto('No se pudo consultar el estatus, reintentando…');
+    return false;
+  }
+  const status = estado.data && estado.data.status;
+  const paymentStatus = estado.data && estado.data.paymentStatus;
+  setMpEstadoTexto(MP_ESTADO_LABEL[status] || ('Estatus: ' + status));
+  // "approved" es el término que Mercado Pago usa en todas sus APIs de pago
+  // para un cobro exitoso — se detecta por el estatus del pago (paymentStatus),
+  // no de la order en general (status), porque status puede tardar en
+  // reflejar el cambio o usar otra palabra distinta.
+  if (paymentStatus === 'approved') {
+    ocultarUiCobroMP();
+    await confirmarVenta();
+    return true;
+  }
+  if (status === 'canceled' || status === 'expired' || paymentStatus === 'rejected') {
+    document.getElementById('mp-cobro-status-box').className = 'cambio-box neg';
+    toast('El cobro se canceló en la terminal', 'warn');
+    return true;
+  }
+  return false;
+}
+
+async function verificarCobroMPManual() {
+  if (!mpIntentActual) { toast('No hay ningún cobro en curso para verificar','warn'); return; }
+  setMpEstadoTexto('Verificando…');
+  await chequearEstadoMP();
 }
 
 async function cancelarCobroMP() {

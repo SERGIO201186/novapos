@@ -74,12 +74,7 @@ function doPost(e) {
 
     // Cobro con terminal física Mercado Pago Point. El Access Token vive en
     // Propiedades del script (MP_ACCESS_TOKEN) — nunca en NovaPOS ni en la
-    // hoja de cálculo. Basado en la documentación pública confirmada de
-    // "Point Integration API" para crear/cancelar payment-intents; la
-    // consulta de estatus (mp_estado_intent) se infiere del mismo patrón de
-    // URL que las otras dos, sin haberse podido verificar 100% contra la
-    // documentación oficial completa — pruébalo con un cobro pequeño antes
-    // de usarlo con clientes reales.
+    // hoja de cálculo.
     //
     // Listar dispositivos usa la API de Terminales (/terminals/v1/list) y no
     // /point/integration-api/devices: en esta cuenta esa segunda devuelve
@@ -89,21 +84,42 @@ function doPost(e) {
     // terminal real (id, pos_id, store_id, operating_mode).
     if (action === 'mp_listar_dispositivos') {
       return mpProxy_('GET', '/terminals/v1/list?limit=50&offset=0', null, function(data) {
-        var lista = (data.terminals || []).map(function(t) { return { id: t.id }; });
+        // La respuesta real viene anidada: {data:{terminals:[...]}, paging:{...}}
+        var lista = ((data.data && data.data.terminals) || []).map(function(t) { return { id: t.id }; });
         return json({ ok:true, data: lista });
       });
     }
+    // Cobrar con la terminal usa la API de "orders" (/v1/orders), confirmada
+    // directamente contra la documentación oficial (create, consultar por id
+    // y cancelar) — no /point/integration-api/devices/.../payment-intents,
+    // que es la que dio UNAUTHORIZED arriba. El monto va como texto decimal
+    // ("24.00"), no en centavos. El estatus de "pago aprobado" se identifica
+    // por transactions.payments[0].status === 'approved' (el término que usa
+    // Mercado Pago en todas sus APIs de pago) — no se pudo ver un ejemplo con
+    // ese valor exacto en la documentación disponible (solo "created",
+    // "canceled" y "refunded"), así que pruébalo con un cobro pequeño antes
+    // de confiar en él con clientes reales.
     if (action === 'mp_crear_intent') {
-      return mpProxy_('POST', '/point/integration-api/devices/' + body.deviceId + '/payment-intents', {
-        amount: Math.round(body.amount * 100), // MP no acepta decimales: 1500 = $15.00
-        additional_info: { external_reference: body.externalReference || '', print_on_terminal: true },
+      return mpProxy_('POST', '/v1/orders', {
+        type: 'point',
+        external_reference: body.externalReference || '',
+        expiration_time: 'PT16M',
+        transactions: { payments: [ { amount: Number(body.amount).toFixed(2) } ] },
+        config: { point: { terminal_id: body.deviceId, print_on_terminal: 'no_ticket' } },
+        description: 'Venta NovaPOS',
       }, function(data) { return json({ ok:true, data: { paymentIntentId: data.id } }); });
     }
     if (action === 'mp_estado_intent') {
-      return mpProxy_('GET', '/point/integration-api/devices/' + body.deviceId + '/payment-intents/' + body.paymentIntentId);
+      return mpProxy_('GET', '/v1/orders/' + body.paymentIntentId, null, function(data) {
+        // Log temporal para confirmar contra un cobro real qué valores manda
+        // Mercado Pago en status/paymentStatus — quitar una vez confirmado.
+        Logger.log('mp_estado_intent respuesta cruda: ' + JSON.stringify(data));
+        var pago = (data.transactions && data.transactions.payments && data.transactions.payments[0]) || {};
+        return json({ ok:true, data: { status: data.status, paymentStatus: pago.status || '' } });
+      });
     }
     if (action === 'mp_cancelar_intent') {
-      return mpProxy_('DELETE', '/point/integration-api/devices/' + body.deviceId + '/payment-intents/' + body.paymentIntentId);
+      return mpProxy_('POST', '/v1/orders/' + body.paymentIntentId + '/cancel');
     }
 
     // Resincronización completa (botón "Sincronizar todo" y los resets de
@@ -219,6 +235,9 @@ function mpProxy_(method, path, payload, onOk) {
     headers: { Authorization: 'Bearer ' + token },
     muteHttpExceptions: true,
   };
+  // La API de "orders" exige X-Idempotency-Key en cada POST (crear, cancelar,
+  // reembolsar) para no duplicar la operación si la petición se reintenta.
+  if (options.method === 'post') options.headers['X-Idempotency-Key'] = Utilities.getUuid();
   if (payload) {
     options.contentType = 'application/json';
     options.payload = JSON.stringify(payload);
