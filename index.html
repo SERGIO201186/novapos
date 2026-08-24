@@ -2479,6 +2479,34 @@ async function syncNow() {
   }
 }
 
+// Google Sheets adivina el tipo de cada celda: un código de barras o un
+// teléfono (puros dígitos) se guardan como NÚMERO aunque la app siempre los
+// trate como texto. Al bajarlos así, comparaciones como
+// `productos.find(x=>x.barcode===bc)` dejan de encontrar coincidencia
+// (texto !== número) y tocar el producto no hace nada, sin ningún error
+// visible. Esta lista dice qué campos sí deben quedar como número al bajar
+// — todo lo demás se fuerza a texto.
+const CAMPOS_NUMERICOS_SHEET = {
+  productos:   ['precio','costo','stock','stockmin'],
+  ventas:      ['subtotal','descuento','total','recibido','cambio'],
+  movimientos: ['monto'],
+  facturas:    ['subtotal','iva','total'],
+  recargas:    ['monto','comisionPct','gananciaEstimada'],
+  cortes:      ['fondo','ingresos','egresos','saldoFinal'],
+  vendedores:  [],
+};
+function normalizarFilasSheet(sheetName, filas) {
+  const numFields = CAMPOS_NUMERICOS_SHEET[sheetName] || [];
+  return (filas||[]).map(fila => {
+    const out = {...fila};
+    for (const k in out) {
+      if (out[k] === null || out[k] === undefined) continue;
+      out[k] = numFields.includes(k) ? (parseFloat(out[k]) || 0) : String(out[k]);
+    }
+    return out;
+  });
+}
+
 // Trae lo que hay en Google Sheets y reemplaza la base local con eso — es el
 // complemento de syncNow(): ese solo sube, este solo baja. Hace falta para
 // que un dispositivo nuevo (o uno que se quedó atrás) pueda ponerse al día
@@ -2492,19 +2520,19 @@ async function cargarDeSheets(avisar = true) {
       sheetsGet('facturas'), sheetsGet('cortes'), sheetsGet('recargas'), sheetsGet('vendedores'),
     ]);
     if (productos === null) throw new Error('Sin respuesta del Apps Script');
-    const ventas = (ventasRaw||[]).map(v => {
+    const ventas = normalizarFilasSheet('ventas', ventasRaw).map(v => {
       let items = [];
       try { items = typeof v.items === 'string' ? JSON.parse(v.items || '[]') : (v.items || []); }
       catch { items = []; }
       return { ...v, items };
     });
-    db.productos   = productos || [];
+    db.productos   = normalizarFilasSheet('productos', productos);
     db.ventas      = ventas;
-    db.movimientos = movimientos || [];
-    db.facturas    = facturas || [];
-    db.cortes      = cortes || [];
-    db.recargas    = recargas || [];
-    db.vendedores  = vendedores || [];
+    db.movimientos = normalizarFilasSheet('movimientos', movimientos);
+    db.facturas    = normalizarFilasSheet('facturas', facturas);
+    db.cortes      = normalizarFilasSheet('cortes', cortes);
+    db.recargas    = normalizarFilasSheet('recargas', recargas);
+    db.vendedores  = normalizarFilasSheet('vendedores', vendedores);
     save();
     setSyncState('ok', 'Descargado de Google Sheets');
     if (avisar) toast('Datos descargados de Google Sheets ✓', 'ok');
