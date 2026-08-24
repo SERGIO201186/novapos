@@ -2015,7 +2015,7 @@ const SHEET_HEADERS = {
   facturas:    ['id','folio','ventaId','fecha','clienteNombre','clienteRFC','clienteEmail','clienteDir','usoCFDI','metodoPago','formaPago','subtotal','iva','total','estatus','cfdiUUID'],
   recargas:    ['id','folio','fecha','compania','telefono','monto','comisionPct','gananciaEstimada','estatus','folioProveedor','mensaje'],
   cortes:      ['apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor'],
-  vendedores:  ['id','nombre'],
+  vendedores:  ['id','nombre','pin'],
   config:      ['key','value'],
 };
 
@@ -2042,6 +2042,15 @@ function ensureHeaders_(sh, name) {
   if (!hayEncabezados) {
     sh.getRange(1,1,1,esperados.length).setValues([esperados]);
     return esperados;
+  }
+  // Agrega al final cualquier columna que el código ya espere pero la hoja
+  // todavía no tenga (p.ej. "pin" en una hoja "vendedores" creada antes de
+  // que existiera esa columna) — nunca reordena ni toca las columnas que ya
+  // existen, así que los datos guardados no se mueven ni se pierden.
+  const faltantes = esperados.filter(h => !actuales.includes(h));
+  if (faltantes.length) {
+    sh.getRange(1, actuales.length+1, 1, faltantes.length).setValues([faltantes]);
+    return [...actuales, ...faltantes];
   }
   return actuales;
 }
@@ -2560,9 +2569,7 @@ async function syncNow() {
         facturas:    db.facturas || [],
         cortes:      db.cortes,
         recargas:    db.recargas || [],
-        // El NIP de cada vendedor nunca sube a Sheets (igual que el NIP de
-        // inventario y el de dueño) — se queda solo en este dispositivo.
-        vendedores:  (db.vendedores || []).map(({id, nombre}) => ({id, nombre})),
+        vendedores:  db.vendedores || [],
       }
     });
     const ok = !!(res && res.ok);
@@ -2610,9 +2617,10 @@ async function cargarDeSheets(avisar = true) {
   if (!cfg.url) return false;
   setSyncState('syncing');
   try {
-    const [productos, ventasRaw, movimientos, facturas, cortes, recargas, vendedores] = await Promise.all([
+    const [productos, ventasRaw, movimientos, facturas, cortes, recargas, vendedores, configRaw] = await Promise.all([
       sheetsGet('productos'), sheetsGet('ventas'), sheetsGet('movimientos'),
       sheetsGet('facturas'), sheetsGet('cortes'), sheetsGet('recargas'), sheetsGet('vendedores'),
+      sheetsGet('config'),
     ]);
     if (productos === null) throw new Error('Sin respuesta del Apps Script');
     const ventas = normalizarFilasSheet('ventas', ventasRaw).map(v => {
@@ -2629,6 +2637,23 @@ async function cargarDeSheets(avisar = true) {
     db.recargas    = normalizarFilasSheet('recargas', recargas);
     db.vendedores  = normalizarFilasSheet('vendedores', vendedores);
     save();
+
+    // Trae también los datos del negocio y los NIP (dueño/inventario) que
+    // guardarConfigEnSheets() sube — antes solo se subían, nunca se bajaban,
+    // así que un dispositivo nuevo se quedaba sin el NIP del dueño configurado
+    // en otro. Los NIP de cada vendedor viven en la fila del propio vendedor
+    // (arriba), no aquí.
+    const configMap = Object.fromEntries((configRaw||[]).map(r => [String(r.key), r.value]));
+    if ('nombre_negocio' in configMap) cfg.nombre = String(configMap.nombre_negocio||'');
+    if ('rfc'            in configMap) cfg.rfc    = String(configMap.rfc||'');
+    if ('telefono'       in configMap) cfg.tel    = String(configMap.telefono||'');
+    if ('direccion'      in configMap) cfg.dir    = String(configMap.direccion||'');
+    if ('iva'            in configMap) cfg.iva    = parseFloat(configMap.iva) || cfg.iva;
+    if ('giro'           in configMap) cfg.giro   = String(configMap.giro||cfg.giro);
+    if ('owner_pin'      in configMap) cfg.ownerPin = String(configMap.owner_pin||'');
+    if ('inv_pin'        in configMap) cfg.invPin   = String(configMap.inv_pin||'');
+    saveCfg();
+
     setSyncState('ok', 'Descargado de Google Sheets');
     if (avisar) toast('Datos descargados de Google Sheets ✓', 'ok');
     return true;
@@ -2642,6 +2667,20 @@ async function cargarDeSheets(avisar = true) {
 function refrescarVistasTrasDescarga() {
   renderPosGrid(); renderInv(); renderCaja(); renderReportes();
   renderFacturas(); renderVentasParaFacturar(); renderRecargas();
+  renderVendedores();
+  // Refleja en los campos de Configuración lo que acaba de bajar de Sheets
+  // (nombre del negocio, NIP de dueño/inventario, etc.), por si la pantalla
+  // de Configuración ya estaba abierta cuando se descargó.
+  ['nombre','rfc','tel','dir','iva'].forEach(k => {
+    const el = document.getElementById('cfg-' + k);
+    if (el) el.value = cfg[k] ?? '';
+    const elPro = document.getElementById('cfg-' + k + '-pro');
+    if (elPro) elPro.value = cfg[k] ?? '';
+  });
+  const giroEl = document.getElementById('cfg-giro'); if (giroEl) giroEl.value = cfg.giro || 'generico';
+  const giroElPro = document.getElementById('cfg-giro-pro'); if (giroElPro) giroElPro.value = cfg.giro || 'generico';
+  const invPinEl = document.getElementById('cfg-inv-pin'); if (invPinEl) invPinEl.value = cfg.invPin || '';
+  const ownerPinEl = document.getElementById('cfg-owner-pin'); if (ownerPinEl) ownerPinEl.value = cfg.ownerPin || '';
   updateBadge();
 }
 
@@ -2748,6 +2787,8 @@ async function guardarConfigEnSheets() {
     {key:'direccion',      value:cfg.dir},
     {key:'iva',            value:String(cfg.iva)},
     {key:'giro',           value:cfg.giro},
+    {key:'owner_pin',      value:cfg.ownerPin||''},
+    {key:'inv_pin',        value:cfg.invPin||''},
     {key:'version',        value:'PRO-2.0'},
     {key:'ultima_sync',    value:new Date().toISOString()},
   ];
@@ -2784,6 +2825,10 @@ function guardarConfigInvPin() {
   if (v && !/^\d{4,6}$/.test(v)) { toast('El NIP debe ser de 4 a 6 dígitos (o déjalo vacío para quitarlo)','warn'); return; }
   cfg.invPin = v;
   saveCfg();
+  // Antes este NIP se quedaba solo en el dispositivo donde se configuraba;
+  // ahora viaja por Google Sheets (igual que el resto de la config) para que
+  // todos los dispositivos del negocio pidan el mismo candado.
+  guardarConfigEnSheets();
   toast(v ? 'NIP de inventario activado ✓' : 'NIP de inventario desactivado ✓');
 }
 
@@ -2792,6 +2837,7 @@ function guardarConfigOwnerPin() {
   if (v && !/^\d{4,6}$/.test(v)) { toast('El NIP debe ser de 4 a 6 dígitos (o déjalo vacío para quitarlo)','warn'); return; }
   cfg.ownerPin = v;
   saveCfg();
+  guardarConfigEnSheets();
   toast(v ? 'NIP de dueño activado ✓ — Configuración quedará protegida' : 'NIP de dueño desactivado ✓');
 }
 
@@ -2908,9 +2954,7 @@ function agregarVendedor() {
   db.vendedores.push(v);
   inputNombre.value = ''; inputNip.value = '';
   save();
-  // El NIP no se sube a Sheets — se queda solo en este dispositivo, igual que
-  // el NIP de inventario y el de dueño, para no dejarlo en texto plano en la hoja.
-  saveAndSyncFast('vendedores', { id: v.id, nombre: v.nombre });
+  saveAndSyncFast('vendedores', v);
   renderVendedores();
   toast(`Vendedor "${nombre}" agregado ✓`);
 }
@@ -2948,6 +2992,7 @@ function guardarNipVendedor() {
   const v = db.vendedores.find(x => x.id === vendedorPinEditId);
   if (v) v.pin = pin;
   save();
+  if (v) saveAndSyncFast('vendedores', v);
   closeModal('modal-vendedor-pin');
   vendedorPinEditId = null;
   renderVendedores();

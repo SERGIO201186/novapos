@@ -138,7 +138,7 @@ const SHEET_HEADERS = {
   facturas:    ['id','folio','ventaId','fecha','clienteNombre','clienteRFC','clienteEmail','clienteDir','usoCFDI','metodoPago','formaPago','subtotal','iva','total','estatus','cfdiUUID'],
   recargas:    ['id','folio','fecha','compania','telefono','monto','comisionPct','gananciaEstimada','estatus','folioProveedor','mensaje'],
   cortes:      ['apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor'],
-  vendedores:  ['id','nombre'],
+  vendedores:  ['id','nombre','pin'],
   config:      ['key','value'],
 };
 
@@ -165,6 +165,15 @@ function ensureHeaders_(sh, name) {
   if (!hayEncabezados) {
     sh.getRange(1,1,1,esperados.length).setValues([esperados]);
     return esperados;
+  }
+  // Agrega al final cualquier columna que el código ya espere pero la hoja
+  // todavía no tenga (p.ej. "pin" en una hoja "vendedores" creada antes de
+  // que existiera esa columna) — nunca reordena ni toca las columnas que ya
+  // existen, así que los datos guardados no se mueven ni se pierden.
+  const faltantes = esperados.filter(h => !actuales.includes(h));
+  if (faltantes.length) {
+    sh.getRange(1, actuales.length+1, 1, faltantes.length).setValues([faltantes]);
+    return [...actuales, ...faltantes];
   }
   return actuales;
 }
