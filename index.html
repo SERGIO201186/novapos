@@ -1531,7 +1531,10 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
         <div class="lbl">Terminal Mercado Pago</div>
         <div class="num" id="mp-cobro-status-num" style="font-size:14px">Creando cobro…</div>
       </div>
-      <button class="btn btn-ghost btn-full" style="margin-top:10px" onclick="cancelarCobroMP()">✖ Cancelar cobro</button>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button class="btn btn-ghost" style="flex:1" onclick="verificarCobroMPManual()">🔄 Verificar de nuevo</button>
+        <button class="btn btn-ghost" style="flex:1" onclick="cancelarCobroMP()">✖ Cancelar cobro</button>
+      </div>
     </div>
     <div id="cobrar-botones-normales" style="display:flex;gap:8px;margin-top:14px">
       <button class="btn btn-ghost" style="flex:1" onclick="closeModal('modal-cobrar')">Cancelar</button>
@@ -2086,6 +2089,9 @@ function doPost(e) {
     }
     if (action === 'mp_estado_intent') {
       return mpProxy_('GET', '/v1/orders/' + body.paymentIntentId, null, function(data) {
+        // Log temporal para confirmar contra un cobro real qué valores manda
+        // Mercado Pago en status/paymentStatus — quitar una vez confirmado.
+        Logger.log('mp_estado_intent respuesta cruda: ' + JSON.stringify(data));
         var pago = (data.transactions && data.transactions.payments && data.transactions.payments[0]) || {};
         return json({ ok:true, data: { status: data.status, paymentStatus: pago.status || '' } });
       });
@@ -3894,42 +3900,60 @@ async function cobrarConMP() {
   setMpEstadoTexto(MP_ESTADO_LABEL.created);
 
   let intentos = 0;
-  const MAX_INTENTOS = 45; // ~90s a 2s por intento
+  const MAX_INTENTOS = 90; // ~3 min a 2s por intento — la primera vinculación con la terminal puede tardar
   mpPollTimer = setInterval(async () => {
     intentos++;
-    if (!mpIntentActual) return; // ya se canceló desde acá
-    const estado = await mpEstadoIntent(mpIntentActual);
-    if (!estado || !estado.ok) {
-      // Un error puntual de red no cancela el cobro — la terminal puede
-      // seguir procesando aunque este dispositivo no haya podido consultar
-      // el estatus esta vez. Se avisa y se reintenta en el siguiente ciclo.
-      setMpEstadoTexto('No se pudo consultar el estatus, reintentando…');
-      if (intentos >= MAX_INTENTOS) {
-        ocultarUiCobroMP();
-        toast('No se pudo confirmar el cobro — revisa la terminal y el historial de Mercado Pago antes de reintentar','err');
-      }
-      return;
-    }
-    const status = estado.data && estado.data.status;
-    const paymentStatus = estado.data && estado.data.paymentStatus;
-    setMpEstadoTexto(MP_ESTADO_LABEL[status] || ('Estatus: ' + status));
-    // "approved" es el término que Mercado Pago usa en todas sus APIs de
-    // pago para un cobro exitoso — se detecta por el estatus del pago
-    // (paymentStatus), no de la order en general (status), porque status
-    // puede tardar en reflejar el cambio o usar otra palabra distinta.
-    if (paymentStatus === 'approved') {
+    const resuelto = await chequearEstadoMP();
+    if (resuelto) { clearInterval(mpPollTimer); mpPollTimer = null; return; }
+    if (intentos >= MAX_INTENTOS) {
       clearInterval(mpPollTimer); mpPollTimer = null;
-      ocultarUiCobroMP();
-      await confirmarVenta();
-    } else if (status === 'canceled' || status === 'expired' || paymentStatus === 'rejected') {
-      clearInterval(mpPollTimer); mpPollTimer = null;
-      document.getElementById('mp-cobro-status-box').className = 'cambio-box neg';
-      toast('El cobro se canceló en la terminal', 'warn');
-    } else if (intentos >= MAX_INTENTOS) {
-      clearInterval(mpPollTimer); mpPollTimer = null;
-      toast('El cobro está tardando demasiado — revisa la terminal', 'warn');
+      // OJO: no se llama ocultarUiCobroMP() aquí a propósito — el cobro pudo
+      // haberse completado en la terminal aunque este dispositivo ya haya
+      // dejado de consultarlo automáticamente. Se deja el id (mpIntentActual)
+      // y los botones de "Verificar de nuevo"/"Cancelar" visibles en vez de
+      // dar por perdido el cobro, para no cobrarle dos veces al cliente.
+      setMpEstadoTexto('No se confirmó automáticamente. Antes de cobrar de nuevo, presiona "Verificar de nuevo" o revisa tu cuenta de Mercado Pago.');
+      toast('El cobro está tardando más de lo normal — verifica manualmente antes de reintentar', 'warn');
     }
   }, 2000);
+}
+
+// Comparte la lógica de interpretar la respuesta de mpEstadoIntent entre el
+// polling automático y el botón "🔄 Verificar de nuevo" — ese botón existe
+// porque una order puede terminar aprobándose en la terminal después de que
+// el polling automático se rindió por tardanza, y sin una forma de volver a
+// consultar el mismo id se corre el riesgo de cobrarle dos veces al cliente.
+async function chequearEstadoMP() {
+  if (!mpIntentActual) return true;
+  const estado = await mpEstadoIntent(mpIntentActual);
+  if (!estado || !estado.ok) {
+    setMpEstadoTexto('No se pudo consultar el estatus, reintentando…');
+    return false;
+  }
+  const status = estado.data && estado.data.status;
+  const paymentStatus = estado.data && estado.data.paymentStatus;
+  setMpEstadoTexto(MP_ESTADO_LABEL[status] || ('Estatus: ' + status));
+  // "approved" es el término que Mercado Pago usa en todas sus APIs de pago
+  // para un cobro exitoso — se detecta por el estatus del pago (paymentStatus),
+  // no de la order en general (status), porque status puede tardar en
+  // reflejar el cambio o usar otra palabra distinta.
+  if (paymentStatus === 'approved') {
+    ocultarUiCobroMP();
+    await confirmarVenta();
+    return true;
+  }
+  if (status === 'canceled' || status === 'expired' || paymentStatus === 'rejected') {
+    document.getElementById('mp-cobro-status-box').className = 'cambio-box neg';
+    toast('El cobro se canceló en la terminal', 'warn');
+    return true;
+  }
+  return false;
+}
+
+async function verificarCobroMPManual() {
+  if (!mpIntentActual) { toast('No hay ningún cobro en curso para verificar','warn'); return; }
+  setMpEstadoTexto('Verificando…');
+  await chequearEstadoMP();
 }
 
 async function cancelarCobroMP() {

@@ -111,6 +111,9 @@ function doPost(e) {
     }
     if (action === 'mp_estado_intent') {
       return mpProxy_('GET', '/v1/orders/' + body.paymentIntentId, null, function(data) {
+        // Log temporal para confirmar contra un cobro real qué valores manda
+        // Mercado Pago en status/paymentStatus — quitar una vez confirmado.
+        Logger.log('mp_estado_intent respuesta cruda: ' + JSON.stringify(data));
         var pago = (data.transactions && data.transactions.payments && data.transactions.payments[0]) || {};
         return json({ ok:true, data: { status: data.status, paymentStatus: pago.status || '' } });
       });
