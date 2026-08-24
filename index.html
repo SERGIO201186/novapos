@@ -1288,6 +1288,16 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
     </div>
 
     <div class="card">
+      <div class="card-hd">📋 Resumen de turno</div>
+      <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Cada vez que se cierra la caja, se abre automáticamente para imprimir un resumen del turno (ventas, ingresos/egresos, saldo). Si pones un correo aquí, además se lo envía por email — déjalo vacío para que solo se imprima, como hasta ahora.</p>
+      <div class="field">
+        <label>Correo para recibir el resumen (opcional)</label>
+        <input id="cfg-corte-email" type="email" placeholder="ejemplo@correo.com">
+      </div>
+      <button class="btn btn-primary" onclick="guardarConfigCorteEmail()">💾 Guardar</button>
+    </div>
+
+    <div class="card">
       <div class="card-hd">🔒 Seguridad de inventario</div>
       <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Si lo configuras, se va a pedir este NIP antes de agregar, editar o eliminar productos, y antes de agregar stock escaneando — para que el personal de venta no pueda tocar el inventario sin permiso. Déjalo vacío para no pedir nada (como hasta ahora).</p>
       <div class="field">
@@ -1830,6 +1840,9 @@ function activarModoPro(lic) {
   const invPinEl = document.getElementById('cfg-inv-pin');
   if (invPinEl) invPinEl.value = cfg.invPin || '';
 
+  const corteEmailEl = document.getElementById('cfg-corte-email');
+  if (corteEmailEl) corteEmailEl.value = cfg.corteEmail || '';
+
   // Recargas es exclusivo de Versión 2 — se oculta el acceso (nav de escritorio
   // y móvil) para licencias de Versión 1, y si alguien ya estaba parado en esa
   // vista con una licencia que dejó de calificar (ej. se le cambió el tier),
@@ -1936,6 +1949,16 @@ function doPost(e) {
       } else {
         return json({ok:false, error:'scope inválido'});
       }
+      return json({ok:true});
+    }
+
+    // Relevo simple hacia MailApp — igual que 'recharge' con el proveedor de
+    // recargas, NovaPOS no necesita ninguna credencial de correo propia,
+    // solo pedirle a Apps Script que mande el email con la cuenta de Google
+    // que tiene desplegado el script.
+    if (action === 'send_corte_email') {
+      if (!body.to) return json({ok:false, error:'Falta correo destino'});
+      MailApp.sendEmail({ to: body.to, subject: body.subject || 'Corte de turno', htmlBody: body.html || '' });
       return json({ok:true});
     }
 
@@ -2050,7 +2073,7 @@ const SHEET_HEADERS = {
   movimientos: ['id','fecha','tipo','monto','concepto'],
   facturas:    ['id','folio','ventaId','fecha','clienteNombre','clienteRFC','clienteEmail','clienteDir','usoCFDI','metodoPago','formaPago','subtotal','iva','total','estatus','cfdiUUID'],
   recargas:    ['id','folio','fecha','compania','telefono','monto','comisionPct','gananciaEstimada','estatus','folioProveedor','mensaje'],
-  cortes:      ['apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor'],
+  cortes:      ['apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal'],
   vendedores:  ['id','nombre'],
   config:      ['key','value'],
 };
@@ -2123,7 +2146,7 @@ async function copyScript() {
 //  STATE
 // ══════════════════════════════════════════════════════════
 let db = { productos:[], ventas:[], movimientos:[], facturas:[], caja:{abierta:false,fondo:0,fechaApertura:null}, cortes:[], recargas:[], vendedores:[] };
-let cfg = { url:'', syncSecret:'', nombre:'NovaPOS Demo', rfc:'', tel:'', dir:'', giro:'generico', iva:16, logo:'', ticketAncho:'80', rechargeComision:6, invPin:'', ownerPin:'' };
+let cfg = { url:'', syncSecret:'', nombre:'NovaPOS Demo', rfc:'', tel:'', dir:'', giro:'generico', iva:16, logo:'', ticketAncho:'80', rechargeComision:6, invPin:'', ownerPin:'', corteEmail:'' };
 let ticket = [];
 let editProdId = null;
 let syncing = false;
@@ -2648,7 +2671,7 @@ const CAMPOS_NUMERICOS_SHEET = {
   movimientos: ['monto'],
   facturas:    ['subtotal','iva','total'],
   recargas:    ['monto','comisionPct','gananciaEstimada'],
-  cortes:      ['fondo','ingresos','egresos','saldoFinal'],
+  cortes:      ['fondo','ingresos','egresos','saldoFinal','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal'],
   vendedores:  [],
 };
 function normalizarFilasSheet(sheetName, filas) {
@@ -2706,6 +2729,7 @@ async function cargarDeSheets(avisar = true) {
     if ('direccion'      in configMap) cfg.dir    = String(configMap.direccion||'');
     if ('iva'            in configMap) cfg.iva    = parseFloat(configMap.iva) || cfg.iva;
     if ('giro'           in configMap) cfg.giro   = String(configMap.giro||cfg.giro);
+    if ('corte_email'    in configMap) cfg.corteEmail = String(configMap.corte_email||'');
     if (pins) { cfg.ownerPin = pins.ownerPin || ''; cfg.invPin = pins.invPin || ''; }
     saveCfg();
 
@@ -2736,6 +2760,7 @@ function refrescarVistasTrasDescarga() {
   const giroElPro = document.getElementById('cfg-giro-pro'); if (giroElPro) giroElPro.value = cfg.giro || 'generico';
   const invPinEl = document.getElementById('cfg-inv-pin'); if (invPinEl) invPinEl.value = cfg.invPin || '';
   const ownerPinEl = document.getElementById('cfg-owner-pin'); if (ownerPinEl) ownerPinEl.value = cfg.ownerPin || '';
+  const corteEmailEl = document.getElementById('cfg-corte-email'); if (corteEmailEl) corteEmailEl.value = cfg.corteEmail || '';
   updateBadge();
 }
 
@@ -2842,6 +2867,7 @@ async function guardarConfigEnSheets() {
     {key:'direccion',      value:cfg.dir},
     {key:'iva',            value:String(cfg.iva)},
     {key:'giro',           value:cfg.giro},
+    {key:'corte_email',    value:cfg.corteEmail||''},
     {key:'version',        value:'PRO-2.0'},
     {key:'ultima_sync',    value:new Date().toISOString()},
   ];
@@ -2892,6 +2918,15 @@ function guardarConfigOwnerPin() {
   saveCfg();
   if (cfg.url) sheetsSetPin('owner', { pin: v });
   toast(v ? 'NIP de dueño activado ✓ — Configuración quedará protegida' : 'NIP de dueño desactivado ✓');
+}
+
+function guardarConfigCorteEmail() {
+  const v = (document.getElementById('cfg-corte-email')||{}).value?.trim() || '';
+  if (v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) { toast('Escribe un correo válido (o déjalo vacío para quitarlo)','warn'); return; }
+  cfg.corteEmail = v;
+  saveCfg();
+  guardarConfigEnSheets();
+  toast(v ? 'Correo de resumen de turno guardado ✓' : 'Envío por correo desactivado ✓');
 }
 
 // ══════════════════════════════════════════════════════════
@@ -3757,6 +3792,97 @@ ${html}
   setTimeout(() => { try { if (!win.closed) win.close(); } catch(e){} }, 5000);
 }
 
+// ══════════════════════════════════════════════════════════
+//  RESUMEN DE TURNO — se genera al cerrar caja (ver cerrarCaja()).
+// ══════════════════════════════════════════════════════════
+function buildCorteHTML(corte) {
+  const negocio = esc(cfg.nombre || 'Mi Negocio');
+  const fFmt = d => `${d.toLocaleDateString('es-MX',{day:'2-digit',month:'2-digit',year:'numeric'})} ${d.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}`;
+  const row = (label, val, extra='') => `<div style="display:flex;justify-content:space-between;${extra}"><span>${label}</span><span>${val}</span></div>`;
+  // ingresos = ventas + recargas completadas + movimientos manuales (cada
+  // venta/recarga se registra como un "ingreso" con el mismo monto — ver
+  // confirmarVenta() y procesarRecarga()), así que lo que sobra al restar
+  // ventas y recargas son exactamente los ingresos manuales.
+  const otrosIngresos = Math.max(0, corte.ingresos - corte.ventasTotal - corte.recargasTotal);
+  return `
+    <div style="text-align:center;font-weight:700;font-size:15px;letter-spacing:1px;margin-bottom:2px">${negocio.toUpperCase()}</div>
+    <div style="text-align:center;font-size:12px;color:#555;margin-bottom:6px">RESUMEN DE TURNO</div>
+    <div style="border-top:1px dashed #999;margin:6px 0"></div>
+    ${corte.vendedor ? row('Vendedor', `<b>${esc(corte.vendedor)}</b>`) : ''}
+    ${row('Apertura', fFmt(new Date(corte.apertura)))}
+    ${row('Cierre', fFmt(new Date(corte.cierre)))}
+    <div style="border-top:1px dashed #999;margin:6px 0"></div>
+    ${row('Fondo inicial', mxn(corte.fondo))}
+    ${row(`Ventas (${corte.ventasCount})`, mxn(corte.ventasTotal))}
+    ${corte.efectivo      ? row('&nbsp;&nbsp;Efectivo', mxn(corte.efectivo), 'font-size:11px;color:#555') : ''}
+    ${corte.tarjeta        ? row('&nbsp;&nbsp;Tarjeta', mxn(corte.tarjeta), 'font-size:11px;color:#555') : ''}
+    ${corte.transferencia ? row('&nbsp;&nbsp;Transferencia', mxn(corte.transferencia), 'font-size:11px;color:#555') : ''}
+    ${corte.recargasCount ? row(`Recargas (${corte.recargasCount})`, mxn(corte.recargasTotal)) : ''}
+    ${otrosIngresos       ? row('Otros ingresos', mxn(otrosIngresos)) : ''}
+    ${corte.egresos        ? row('Egresos', '-'+mxn(corte.egresos)) : ''}
+    <div style="border-top:1px dashed #999;margin:6px 0"></div>
+    <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:700"><span>SALDO EN CAJA</span><span>${mxn(corte.saldoFinal)}</span></div>
+    <div style="border-top:1px dashed #999;margin:8px 0"></div>
+    <div style="text-align:center;font-size:10px;color:#999">Generado por NovaPOS</div>`;
+}
+
+function imprimirCorte(corte) {
+  const anchoPapel = cfg.ticketAncho === '58' ? '58' : '80';
+  const anchoContenido = anchoPapel === '58' ? '48mm' : '72mm';
+  const html = buildCorteHTML(corte);
+  const win = window.open('', '_blank', 'width=320,height=600,scrollbars=yes');
+  win.document.write(`<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<title>Resumen de turno</title>
+<style>
+  @page { size: ${anchoPapel}mm auto; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: ${anchoContenido}; }
+  body {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 13px;
+    color: #000;
+    line-height: 1.5;
+    padding: 2mm;
+  }
+  @media print {
+    html, body { width: ${anchoContenido}; }
+    .no-print { display: none !important; }
+  }
+</style>
+</head>
+<body>
+${html}
+<br>
+<div class="no-print" style="margin-top:16px;text-align:center">
+  <button onclick="window.print()" style="padding:8px 24px;font-size:14px;cursor:pointer;background:#059669;color:#fff;border:none;border-radius:6px">
+    🖨 Imprimir
+  </button>
+  <button onclick="window.close()" style="padding:8px 16px;font-size:14px;cursor:pointer;margin-left:8px;border:1px solid #ccc;border-radius:6px">
+    Cerrar
+  </button>
+</div>
+<script>
+  window.addEventListener('afterprint', () => window.close());
+<\/script>
+</body></html>`);
+  win.document.close();
+  win.focus();
+  setTimeout(() => { try { win.print(); } catch(e){} }, 400);
+  setTimeout(() => { try { if (!win.closed) win.close(); } catch(e){} }, 5000);
+}
+
+// El envío pasa por el mismo Apps Script de siempre (acción send_corte_email,
+// que solo hace de relevo hacia MailApp) — así el correo destino y el
+// contenido no dependen de exponer ninguna otra credencial en el HTML/JS.
+async function enviarCorteCorreo(corte) {
+  const asunto = `Corte de turno${corte.vendedor ? ' — '+corte.vendedor : ''} — ${new Date(corte.cierre).toLocaleString('es-MX')}`;
+  const res = await sheetsPost({ action:'send_corte_email', to: cfg.corteEmail, subject: asunto, html: buildCorteHTML(corte) });
+  if (res && res.ok) toast('Resumen de turno enviado por correo ✓', 'ok');
+  else toast('No se pudo enviar el resumen por correo' + (res && res.error ? ': '+res.error : ''), 'err');
+}
+
 // En una PC/laptop con lector de código de barras (funciona como teclado),
 // mantener el foco en este campo deja "cobrar por escaneo" listo sin tocar
 // nada. En una tablet o celular (pantalla táctil, sin mouse) hace lo
@@ -3803,21 +3929,43 @@ async function abrirCaja() {
 
 async function cerrarCaja() {
   if (!confirm('¿Cerrar la caja?')) return;
-  const h = hoy();
-  const movH = db.movimientos.filter(m=>m.fecha.startsWith(h));
-  const ing  = movH.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+m.monto,0);
-  const egr  = movH.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+m.monto,0);
-  db.cortes.push({
-    apertura:db.caja.fechaApertura, cierre:new Date().toISOString(),
-    fondo:db.caja.fondo, ingresos:ing, egresos:egr, saldoFinal:db.caja.fondo+ing-egr,
+  const apertura = db.caja.fechaApertura;
+  const cierre = new Date().toISOString();
+  // Antes se sumaba todo lo de "hoy" (fecha.startsWith(hoy())), lo que
+  // mezclaba turnos distintos del mismo día y salía mal si el turno cruzaba
+  // la medianoche. Ahora se acota exactamente a [apertura, cierre].
+  const movT = db.movimientos.filter(m => m.fecha >= apertura && m.fecha <= cierre);
+  const ing  = movT.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+m.monto,0);
+  const egr  = movT.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+m.monto,0);
+
+  const ventasT = db.ventas.filter(v => v.fecha >= apertura && v.fecha <= cierre);
+  const sumaMetodo = m => ventasT.filter(v=>v.metodo===m).reduce((s,v)=>s+v.total,0);
+  // Solo cuentan las recargas que sí se cobraron (ver procesarRecarga()) —
+  // una fallida nunca se le cobra al cliente ni entra a caja.
+  const recargasT = (db.recargas||[]).filter(r => r.fecha >= apertura && r.fecha <= cierre && r.estatus === 'completada');
+
+  const corte = {
+    apertura, cierre,
+    fondo: db.caja.fondo, ingresos: ing, egresos: egr, saldoFinal: db.caja.fondo+ing-egr,
     vendedor: db.caja.vendedorNombre || '',
-  });
+    ventasCount: ventasT.length,
+    ventasTotal: ventasT.reduce((s,v)=>s+v.total,0),
+    efectivo: sumaMetodo('efectivo'),
+    tarjeta: sumaMetodo('tarjeta'),
+    transferencia: sumaMetodo('transferencia'),
+    recargasCount: recargasT.length,
+    recargasTotal: recargasT.reduce((s,r)=>s+r.monto,0),
+  };
+  db.cortes.push(corte);
   db.caja = {abierta:false,fondo:0,fechaApertura:null};
   await saveAndSync();
   document.getElementById('caja-closed').style.display='block';
   document.getElementById('caja-open').style.display='none';
   updateBadge(); renderCaja();
   toast('Caja cerrada. Corte generado ✓');
+
+  imprimirCorte(corte);
+  if (cfg.corteEmail && cfg.url) enviarCorteCorreo(corte);
 }
 
 async function registrarMov() {
