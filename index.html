@@ -1299,6 +1299,34 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
     </div>
 
     <div class="card">
+      <div class="card-hd">💳 Mercado Pago (terminal Point)</div>
+      <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Para cobrar con tu terminal física Point desde el modal de Cobrar. El Device ID es propio de <b>este dispositivo</b> — si tienes varias tablets, cada una puede tener su propia terminal pareada, así que esto no se sincroniza entre dispositivos, a diferencia del resto de la configuración.</p>
+      <div id="mp-dispositivos-status" class="sheets-status">
+        <span id="mp-dispositivos-dot">⚪</span>
+        <span id="mp-dispositivos-txt">Sin buscar todavía</span>
+      </div>
+      <div class="field">
+        <label>Device ID de tu terminal</label>
+        <input id="cfg-mp-device-id" placeholder="Ej. GERTEC_MP35P__8701016695109435">
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-ghost" onclick="mpBuscarDispositivos()">🔍 Buscar terminal</button>
+        <button class="btn btn-primary" onclick="guardarConfigMpDevice()">💾 Guardar</button>
+      </div>
+      <div id="mp-dispositivos-list" style="margin-top:10px;font-size:12px"></div>
+      <details style="margin-top:14px">
+        <summary style="font:600 12px var(--sans);cursor:pointer;color:var(--indigo)">📋 Cómo configurar el Access Token</summary>
+        <div style="font-size:12px;color:var(--txt2);margin-top:8px;line-height:1.8;background:var(--bg);padding:12px;border-radius:8px">
+          <strong>1.</strong> El Access Token de Mercado Pago <b>nunca</b> se captura en NovaPOS ni viaja a la hoja de cálculo — se guarda directo en tu Apps Script para que nadie más lo vea.<br>
+          <strong>2.</strong> En tu proyecto de Apps Script → ⚙️ Configuración del proyecto → Propiedades del script → agrega la propiedad <code>MP_ACCESS_TOKEN</code> con tu Access Token de producción.<br>
+          <strong>3.</strong> No hace falta volver a implementar el script para que tome una propiedad nueva.<br>
+          <strong>4.</strong> Da clic en "🔍 Buscar terminal" para confirmar que la conexión funciona y copiar el Device ID correcto.<br>
+          <strong>5.</strong> Prueba con un cobro pequeño antes de usarlo con clientes — esta integración no se pudo verificar contra la documentación oficial completa de Mercado Pago al construirla.
+        </div>
+      </details>
+    </div>
+
+    <div class="card">
       <div class="card-hd">🔒 Seguridad de inventario</div>
       <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Si lo configuras, se va a pedir este NIP antes de agregar, editar o eliminar productos, y antes de agregar stock escaneando — para que el personal de venta no pueda tocar el inventario sin permiso. Déjalo vacío para no pedir nada (como hasta ahora).</p>
       <div class="field">
@@ -1463,7 +1491,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
 
 <!-- Cobrar -->
 <div class="modal-bg" id="modal-cobrar">
-  <div class="modal" onkeydown="if(event.key==='Enter'){event.preventDefault();confirmarVenta();}">
+  <div class="modal" onkeydown="if(event.key==='Enter'){event.preventDefault();iniciarCobro();}">
     <h3>💳 Cobrar venta</h3>
     <div class="cobrar-total-disp">
       <div class="lbl">Total a cobrar</div>
@@ -1475,6 +1503,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
         <option value="efectivo">💵 Efectivo</option>
         <option value="tarjeta">💳 Tarjeta</option>
         <option value="transferencia">📱 Transferencia</option>
+        <option value="mercadopago">🅼🅿 Mercado Pago (terminal)</option>
       </select>
     </div>
     <div id="efectivo-ui">
@@ -1494,9 +1523,19 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
         <div class="num" id="cambio-num">$0.00</div>
       </div>
     </div>
-    <div style="display:flex;gap:8px;margin-top:14px">
+    <!-- Se muestra solo mientras hay un cobro con la terminal Point en curso
+         (ver cobrarConMP()) — reemplaza a los botones normales de abajo para
+         que no se pueda dar "Confirmar" dos veces sobre el mismo cobro. -->
+    <div id="mp-cobro-ui" style="display:none">
+      <div class="cambio-box" id="mp-cobro-status-box">
+        <div class="lbl">Terminal Mercado Pago</div>
+        <div class="num" id="mp-cobro-status-num" style="font-size:14px">Creando cobro…</div>
+      </div>
+      <button class="btn btn-ghost btn-full" style="margin-top:10px" onclick="cancelarCobroMP()">✖ Cancelar cobro</button>
+    </div>
+    <div id="cobrar-botones-normales" style="display:flex;gap:8px;margin-top:14px">
       <button class="btn btn-ghost" style="flex:1" onclick="closeModal('modal-cobrar')">Cancelar</button>
-      <button class="btn btn-primary btn-lg" style="flex:2" onclick="confirmarVenta()">✅ Confirmar</button>
+      <button class="btn btn-primary btn-lg" style="flex:2" onclick="iniciarCobro()">✅ Confirmar</button>
     </div>
   </div>
 </div>
@@ -1886,6 +1925,9 @@ function activarModoPro(lic) {
   const corteEmailEl = document.getElementById('cfg-corte-email');
   if (corteEmailEl) corteEmailEl.value = cfg.corteEmail || '';
 
+  const mpDeviceEl = document.getElementById('cfg-mp-device-id');
+  if (mpDeviceEl) mpDeviceEl.value = cfg.mpDeviceId || '';
+
   // Recargas es exclusivo de Versión 2 — se oculta el acceso (nav de escritorio
   // y móvil) para licencias de Versión 1, y si alguien ya estaba parado en esa
   // vista con una licencia que dejó de calificar (ej. se le cambió el tier),
@@ -2005,6 +2047,33 @@ function doPost(e) {
       return json({ok:true});
     }
 
+    // Cobro con terminal física Mercado Pago Point. El Access Token vive en
+    // Propiedades del script (MP_ACCESS_TOKEN) — nunca en NovaPOS ni en la
+    // hoja de cálculo. Basado en la documentación pública confirmada de
+    // "Point Integration API" para crear/cancelar payment-intents; la
+    // consulta de estatus (mp_estado_intent) se infiere del mismo patrón de
+    // URL que las otras dos, sin haberse podido verificar 100% contra la
+    // documentación oficial completa — pruébalo con un cobro pequeño antes
+    // de usarlo con clientes reales.
+    if (action === 'mp_listar_dispositivos') {
+      return mpProxy_('GET', '/point/integration-api/devices', null, function(data) {
+        var lista = Array.isArray(data) ? data : (Array.isArray(data.devices) ? data.devices : []);
+        return json({ ok:true, data: lista });
+      });
+    }
+    if (action === 'mp_crear_intent') {
+      return mpProxy_('POST', '/point/integration-api/devices/' + body.deviceId + '/payment-intents', {
+        amount: Math.round(body.amount * 100), // MP no acepta decimales: 1500 = $15.00
+        additional_info: { external_reference: body.externalReference || '', print_on_terminal: true },
+      }, function(data) { return json({ ok:true, data: { paymentIntentId: data.id } }); });
+    }
+    if (action === 'mp_estado_intent') {
+      return mpProxy_('GET', '/point/integration-api/devices/' + body.deviceId + '/payment-intents/' + body.paymentIntentId);
+    }
+    if (action === 'mp_cancelar_intent') {
+      return mpProxy_('DELETE', '/point/integration-api/devices/' + body.deviceId + '/payment-intents/' + body.paymentIntentId);
+    }
+
     // Resincronización completa (botón "Sincronizar todo" y los resets de
     // "Borrar datos de prueba"/"Borrar TODO"): a diferencia de 'sync', que
     // reemplaza una sola hoja, aquí 'data' es un objeto {nombreHoja: filas[]}
@@ -2107,6 +2176,29 @@ function getPins_() {
   };
 }
 
+// Relevo genérico hacia la API de Mercado Pago — agrega el Authorization
+// Bearer con MP_ACCESS_TOKEN (Propiedades del script) y traduce cualquier
+// error HTTP de MP a {ok:false, error} en vez de dejar tronar el script.
+function mpProxy_(method, path, payload, onOk) {
+  const token = PropertiesService.getScriptProperties().getProperty('MP_ACCESS_TOKEN');
+  if (!token) return json({ ok:false, error:'Falta configurar MP_ACCESS_TOKEN en Propiedades del script' });
+  const options = {
+    method: method.toLowerCase(),
+    headers: { Authorization: 'Bearer ' + token },
+    muteHttpExceptions: true,
+  };
+  if (payload) {
+    options.contentType = 'application/json';
+    options.payload = JSON.stringify(payload);
+  }
+  const resp = UrlFetchApp.fetch('https://api.mercadopago.com' + path, options);
+  const code = resp.getResponseCode();
+  let data = {};
+  try { data = JSON.parse(resp.getContentText() || '{}'); } catch(e) {}
+  if (code >= 400) return json({ ok:false, error: data.message || data.error || ('Mercado Pago respondió ' + code) });
+  return onOk ? onOk(data) : json({ ok:true, data: data });
+}
+
 // Encabezados esperados por hoja — usados tanto al crear una hoja nueva
 // (getSheet) como para reponerlos si una hoja ya existe pero se vació por
 // completo a mano (ensureHeaders_, que usa sync_all antes de escribir).
@@ -2189,7 +2281,10 @@ async function copyScript() {
 //  STATE
 // ══════════════════════════════════════════════════════════
 let db = { productos:[], ventas:[], movimientos:[], facturas:[], caja:{abierta:false,fondo:0,fechaApertura:null}, cortes:[], recargas:[], vendedores:[] };
-let cfg = { url:'', syncSecret:'', nombre:'NovaPOS Demo', rfc:'', tel:'', dir:'', giro:'generico', iva:16, logo:'', ticketAncho:'80', rechargeComision:6, invPin:'', ownerPin:'', corteEmail:'' };
+// mpDeviceId: a propósito NO se sube nunca a guardarConfigEnSheets() —
+// identifica la terminal física Point pareada con ESTE dispositivo/caja,
+// que puede ser distinta en cada tablet si el negocio tiene varias.
+let cfg = { url:'', syncSecret:'', nombre:'NovaPOS Demo', rfc:'', tel:'', dir:'', giro:'generico', iva:16, logo:'', ticketAncho:'80', rechargeComision:6, invPin:'', ownerPin:'', corteEmail:'', mpDeviceId:'' };
 let ticket = [];
 let editProdId = null;
 let syncing = false;
@@ -2973,6 +3068,58 @@ function guardarConfigCorteEmail() {
 }
 
 // ══════════════════════════════════════════════════════════
+//  MERCADO PAGO — cobro con terminal física Point desde el modal de
+//  Cobrar. El Access Token nunca pasa por aquí ni por la hoja de cálculo:
+//  vive en Propiedades del script (ver MP_ACCESS_TOKEN en APPS_SCRIPT_CODE)
+//  y todas las llamadas a la API de Mercado Pago las hace el Apps Script,
+//  igual que ya hace con el proveedor de recargas.
+// ══════════════════════════════════════════════════════════
+function guardarConfigMpDevice() {
+  const v = (document.getElementById('cfg-mp-device-id')||{}).value?.trim() || '';
+  cfg.mpDeviceId = v;
+  saveCfg(); // a propósito NO se sube a Sheets — ver el comentario en la definición de cfg
+  toast(v ? 'Device ID guardado ✓' : 'Device ID borrado ✓');
+}
+
+async function mpBuscarDispositivos() {
+  if (!cfg.url) { toast('Configura primero la URL de Google Sheets','warn'); return; }
+  const dot = document.getElementById('mp-dispositivos-dot');
+  const txt = document.getElementById('mp-dispositivos-txt');
+  const list = document.getElementById('mp-dispositivos-list');
+  dot.textContent = '🟡'; txt.textContent = 'Buscando…'; list.innerHTML = '';
+  const res = await sheetsPost({ action: 'mp_listar_dispositivos' });
+  if (!res || !res.ok) {
+    dot.textContent = '🔴';
+    txt.textContent = 'Error: ' + (res && res.error ? res.error : 'sin respuesta del Apps Script');
+    return;
+  }
+  const dispositivos = res.data || [];
+  if (!dispositivos.length) {
+    dot.textContent = '🟡';
+    txt.textContent = 'Conectado, pero no aparece ninguna terminal en tu cuenta de Mercado Pago.';
+    return;
+  }
+  dot.textContent = '🟢';
+  txt.textContent = `Conectado — ${dispositivos.length} terminal(es) encontrada(s)`;
+  list.innerHTML = dispositivos.map(d => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-top:1px solid var(--border)">
+      <span style="font-family:var(--mono)">${esc(d.id || d.device_id || '')}</span>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('cfg-mp-device-id').value='${esc(d.id || d.device_id || '')}'">Usar esta</button>
+    </div>`).join('');
+}
+
+async function mpCrearIntent(amount, externalReference) {
+  if (!cfg.mpDeviceId) return { ok:false, error:'No has configurado el Device ID de tu terminal (Configuración → Mercado Pago)' };
+  return sheetsPost({ action:'mp_crear_intent', deviceId: cfg.mpDeviceId, amount, externalReference });
+}
+async function mpEstadoIntent(paymentIntentId) {
+  return sheetsPost({ action:'mp_estado_intent', deviceId: cfg.mpDeviceId, paymentIntentId });
+}
+async function mpCancelarIntent(paymentIntentId) {
+  return sheetsPost({ action:'mp_cancelar_intent', deviceId: cfg.mpDeviceId, paymentIntentId });
+}
+
+// ══════════════════════════════════════════════════════════
 //  NIP DE INVENTARIO — protege agregar/editar/eliminar productos
 //  y agregar stock escaneando. Si cfg.invPin está vacío (default),
 //  no se pide nada — es un candado opcional que el negocio activa
@@ -3628,6 +3775,10 @@ function openCobrar() {
 function toggleEfectivo() {
   const m = document.getElementById('cobrar-metodo').value;
   document.getElementById('efectivo-ui').style.display = m==='efectivo'?'block':'none';
+  // Si venían de un cobro con MP cancelado/fallido y cambian de método,
+  // regresa a los botones normales — nunca se queda pegado en la vista de
+  // "cobrando en terminal" cuando ya ni siquiera es el método elegido.
+  ocultarUiCobroMP();
 }
 
 function buildQuickAmts(total) {
@@ -3653,6 +3804,112 @@ function calcCambio() {
   const box = document.getElementById('cambio-box');
   document.getElementById('cambio-num').textContent = mxn(Math.abs(cambio)) + (cambio<0?' (faltan)':'');
   box.className = 'cambio-box'+(cambio<0?' neg':'');
+}
+
+// ══════════════════════════════════════════════════════════
+//  COBRO — punto de entrada único del botón "Confirmar" del modal de
+//  Cobrar. Efectivo/tarjeta/transferencia cierran la venta de inmediato,
+//  igual que siempre; Mercado Pago primero manda el cobro a la terminal
+//  física y espera su confirmación antes de cerrar la venta (ver decisión
+//  tomada con el negocio: confirmación automática, sin revisión manual).
+// ══════════════════════════════════════════════════════════
+function iniciarCobro() {
+  const metodo = document.getElementById('cobrar-metodo').value;
+  if (metodo === 'mercadopago') cobrarConMP();
+  else confirmarVenta();
+}
+
+let mpPollTimer = null;
+let mpIntentActual = null;
+
+function ocultarUiCobroMP() {
+  clearInterval(mpPollTimer);
+  mpPollTimer = null;
+  mpIntentActual = null;
+  const ui = document.getElementById('mp-cobro-ui');
+  if (ui) ui.style.display = 'none';
+  const botones = document.getElementById('cobrar-botones-normales');
+  if (botones) botones.style.display = 'flex';
+}
+
+function setMpEstadoTexto(texto) {
+  const el = document.getElementById('mp-cobro-status-num');
+  if (el) el.textContent = texto;
+}
+
+// Nombres de estatus confirmados por la documentación pública de Mercado
+// Pago Point (OPEN → ON_TERMINAL → FINISHED/CANCELED). Cualquier otro valor
+// se muestra tal cual llegue, en vez de fallar, por si acaso hay alguno más
+// que no se alcanzó a verificar contra la documentación oficial completa.
+const MP_ESTADO_LABEL = {
+  OPEN: 'Enviando cobro a la terminal…',
+  ON_TERMINAL: 'Sigue las instrucciones en la terminal…',
+  FINISHED: 'Pago confirmado ✓',
+  CANCELED: 'Cobro cancelado',
+};
+
+async function cobrarConMP() {
+  if (!cfg.mpDeviceId) {
+    toast('Configura el Device ID de tu terminal en Configuración → Mercado Pago','warn');
+    return;
+  }
+  const { total } = getTotal();
+  document.getElementById('cobrar-botones-normales').style.display = 'none';
+  document.getElementById('mp-cobro-ui').style.display = 'block';
+  document.getElementById('mp-cobro-status-box').className = 'cambio-box';
+  setMpEstadoTexto('Creando cobro…');
+
+  const externalReference = 'novapos-' + uid();
+  const res = await mpCrearIntent(total, externalReference);
+  if (!res || !res.ok) {
+    setMpEstadoTexto('Error: ' + (res && res.error ? res.error : 'no se pudo crear el cobro'));
+    document.getElementById('mp-cobro-status-box').className = 'cambio-box neg';
+    return;
+  }
+  mpIntentActual = res.data.paymentIntentId;
+  setMpEstadoTexto(MP_ESTADO_LABEL.OPEN);
+
+  let intentos = 0;
+  const MAX_INTENTOS = 45; // ~90s a 2s por intento
+  mpPollTimer = setInterval(async () => {
+    intentos++;
+    if (!mpIntentActual) return; // ya se canceló desde acá
+    const estado = await mpEstadoIntent(mpIntentActual);
+    if (!estado || !estado.ok) {
+      // Un error puntual de red no cancela el cobro — la terminal puede
+      // seguir procesando aunque este dispositivo no haya podido consultar
+      // el estatus esta vez. Se avisa y se reintenta en el siguiente ciclo.
+      setMpEstadoTexto('No se pudo consultar el estatus, reintentando…');
+      if (intentos >= MAX_INTENTOS) {
+        ocultarUiCobroMP();
+        toast('No se pudo confirmar el cobro — revisa la terminal y el historial de Mercado Pago antes de reintentar','err');
+      }
+      return;
+    }
+    const status = estado.data && estado.data.status;
+    setMpEstadoTexto(MP_ESTADO_LABEL[status] || ('Estatus: ' + status));
+    if (status === 'FINISHED') {
+      clearInterval(mpPollTimer); mpPollTimer = null;
+      ocultarUiCobroMP();
+      await confirmarVenta();
+    } else if (status === 'CANCELED') {
+      clearInterval(mpPollTimer); mpPollTimer = null;
+      document.getElementById('mp-cobro-status-box').className = 'cambio-box neg';
+      toast('El cobro se canceló en la terminal', 'warn');
+    } else if (intentos >= MAX_INTENTOS) {
+      clearInterval(mpPollTimer); mpPollTimer = null;
+      toast('El cobro está tardando demasiado — revisa la terminal', 'warn');
+    }
+  }, 2000);
+}
+
+async function cancelarCobroMP() {
+  const id = mpIntentActual;
+  ocultarUiCobroMP();
+  if (id) {
+    const res = await mpCancelarIntent(id);
+    if (!res || !res.ok) toast('El cobro ya se había enviado a la terminal — cancélalo ahí si sigue pendiente','warn');
+  }
 }
 
 async function confirmarVenta() {
@@ -3728,7 +3985,7 @@ function buildTicketHTML(venta, paraImprimir = false) {
   const hStr  = fecha.toLocaleTimeString('es-MX', {hour:'2-digit',minute:'2-digit'});
   const sep   = '--------------------------------';
 
-  const metodoLabel = {efectivo:'Efectivo',tarjeta:'Tarjeta',transferencia:'Transferencia'}[venta.metodo]||venta.metodo;
+  const metodoLabel = {efectivo:'Efectivo',tarjeta:'Tarjeta',transferencia:'Transferencia',mercadopago:'Mercado Pago'}[venta.metodo]||venta.metodo;
   const vendedorNombre = esc(venta.vendedor || '');
 
   const itemsHTML = venta.items.map(i => {
@@ -4588,7 +4845,7 @@ function iniciarFactura(ventaId) {
   ['fac-c-nombre','fac-c-rfc','fac-c-email','fac-c-dir'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('fac-c-uso').value = 'G03';
   document.getElementById('fac-c-metodopago').value = 'PUE';
-  document.getElementById('fac-c-formapago').value = v.metodo==='efectivo'?'01':v.metodo==='tarjeta'?'04':'03';
+  document.getElementById('fac-c-formapago').value = v.metodo==='efectivo'?'01':(v.metodo==='tarjeta'||v.metodo==='mercadopago')?'04':'03';
 
   actualizarPreviewFactura();
   openModal('modal-fac-datos');
@@ -4881,7 +5138,7 @@ function loadDemoData(giro) {
     return {
       id:uid(), folio:getFolioFactura(), ventaId:venta.id, fecha:venta.fecha,
       clienteNombre, clienteRFC, clienteEmail:'', clienteDir:'',
-      usoCFDI:'G03', metodoPago:'PUE', formaPago: venta.metodo==='efectivo'?'01':venta.metodo==='tarjeta'?'04':'03',
+      usoCFDI:'G03', metodoPago:'PUE', formaPago: venta.metodo==='efectivo'?'01':(venta.metodo==='tarjeta'||venta.metodo==='mercadopago')?'04':'03',
       subtotal:sub, iva, total, estatus:'vigente', cfdiUUID:'',
     };
   };

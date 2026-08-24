@@ -72,6 +72,33 @@ function doPost(e) {
       return json({ok:true});
     }
 
+    // Cobro con terminal física Mercado Pago Point. El Access Token vive en
+    // Propiedades del script (MP_ACCESS_TOKEN) — nunca en NovaPOS ni en la
+    // hoja de cálculo. Basado en la documentación pública confirmada de
+    // "Point Integration API" para crear/cancelar payment-intents; la
+    // consulta de estatus (mp_estado_intent) se infiere del mismo patrón de
+    // URL que las otras dos, sin haberse podido verificar 100% contra la
+    // documentación oficial completa — pruébalo con un cobro pequeño antes
+    // de usarlo con clientes reales.
+    if (action === 'mp_listar_dispositivos') {
+      return mpProxy_('GET', '/point/integration-api/devices', null, function(data) {
+        var lista = Array.isArray(data) ? data : (Array.isArray(data.devices) ? data.devices : []);
+        return json({ ok:true, data: lista });
+      });
+    }
+    if (action === 'mp_crear_intent') {
+      return mpProxy_('POST', '/point/integration-api/devices/' + body.deviceId + '/payment-intents', {
+        amount: Math.round(body.amount * 100), // MP no acepta decimales: 1500 = $15.00
+        additional_info: { external_reference: body.externalReference || '', print_on_terminal: true },
+      }, function(data) { return json({ ok:true, data: { paymentIntentId: data.id } }); });
+    }
+    if (action === 'mp_estado_intent') {
+      return mpProxy_('GET', '/point/integration-api/devices/' + body.deviceId + '/payment-intents/' + body.paymentIntentId);
+    }
+    if (action === 'mp_cancelar_intent') {
+      return mpProxy_('DELETE', '/point/integration-api/devices/' + body.deviceId + '/payment-intents/' + body.paymentIntentId);
+    }
+
     // Resincronización completa (botón "Sincronizar todo" y los resets de
     // "Borrar datos de prueba"/"Borrar TODO"): a diferencia de 'sync', que
     // reemplaza una sola hoja, aquí 'data' es un objeto {nombreHoja: filas[]}
@@ -172,6 +199,29 @@ function getPins_() {
     invPin:   props.getProperty('INV_PIN') || '',
     vendedorPins,
   };
+}
+
+// Relevo genérico hacia la API de Mercado Pago — agrega el Authorization
+// Bearer con MP_ACCESS_TOKEN (Propiedades del script) y traduce cualquier
+// error HTTP de MP a {ok:false, error} en vez de dejar tronar el script.
+function mpProxy_(method, path, payload, onOk) {
+  const token = PropertiesService.getScriptProperties().getProperty('MP_ACCESS_TOKEN');
+  if (!token) return json({ ok:false, error:'Falta configurar MP_ACCESS_TOKEN en Propiedades del script' });
+  const options = {
+    method: method.toLowerCase(),
+    headers: { Authorization: 'Bearer ' + token },
+    muteHttpExceptions: true,
+  };
+  if (payload) {
+    options.contentType = 'application/json';
+    options.payload = JSON.stringify(payload);
+  }
+  const resp = UrlFetchApp.fetch('https://api.mercadopago.com' + path, options);
+  const code = resp.getResponseCode();
+  let data = {};
+  try { data = JSON.parse(resp.getContentText() || '{}'); } catch(e) {}
+  if (code >= 400) return json({ ok:false, error: data.message || data.error || ('Mercado Pago respondió ' + code) });
+  return onOk ? onOk(data) : json({ ok:true, data: data });
 }
 
 // Encabezados esperados por hoja — usados tanto al crear una hoja nueva
