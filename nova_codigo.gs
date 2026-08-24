@@ -62,6 +62,16 @@ function doPost(e) {
       return json({ok:true});
     }
 
+    // Relevo simple hacia MailApp — igual que 'recharge' con el proveedor de
+    // recargas, NovaPOS no necesita ninguna credencial de correo propia,
+    // solo pedirle a Apps Script que mande el email con la cuenta de Google
+    // que tiene desplegado el script.
+    if (action === 'send_corte_email') {
+      if (!body.to) return json({ok:false, error:'Falta correo destino'});
+      MailApp.sendEmail({ to: body.to, subject: body.subject || 'Corte de turno', htmlBody: body.html || '' });
+      return json({ok:true});
+    }
+
     // Resincronización completa (botón "Sincronizar todo" y los resets de
     // "Borrar datos de prueba"/"Borrar TODO"): a diferencia de 'sync', que
     // reemplaza una sola hoja, aquí 'data' es un objeto {nombreHoja: filas[]}
@@ -173,7 +183,7 @@ const SHEET_HEADERS = {
   movimientos: ['id','fecha','tipo','monto','concepto'],
   facturas:    ['id','folio','ventaId','fecha','clienteNombre','clienteRFC','clienteEmail','clienteDir','usoCFDI','metodoPago','formaPago','subtotal','iva','total','estatus','cfdiUUID'],
   recargas:    ['id','folio','fecha','compania','telefono','monto','comisionPct','gananciaEstimada','estatus','folioProveedor','mensaje'],
-  cortes:      ['apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor'],
+  cortes:      ['apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal'],
   vendedores:  ['id','nombre'],
   config:      ['key','value'],
 };
