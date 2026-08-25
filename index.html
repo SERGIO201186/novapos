@@ -1227,8 +1227,9 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
         <button class="btn btn-ghost" onclick="testConexion()">🔄 Probar conexión</button>
         <button class="btn btn-ghost" onclick="descargarDeSheetsManual()">⬇ Descargar de Sheets</button>
         <button class="btn btn-ghost" onclick="syncNow()">⬆ Sincronizar ahora</button>
+        <button class="btn btn-ghost" onclick="cargarHistorialCompleto()">📜 Cargar historial completo</button>
       </div>
-      <p style="font-size:11px;color:var(--txt2);margin-top:8px">⬇ trae lo que haya en la nube a este dispositivo (lo reemplaza aquí). ⬆ hace lo contrario: sube lo de este dispositivo y reemplaza lo que había en la nube. Úsalos según de qué lado está la información más reciente — nunca combinan ambos lados automáticamente.</p>
+      <p style="font-size:11px;color:var(--txt2);margin-top:8px">⬇ trae lo que haya en la nube a este dispositivo (lo reemplaza aquí). ⬆ hace lo contrario: sube lo de este dispositivo y reemplaza lo que había en la nube. Úsalos según de qué lado está la información más reciente — nunca combinan ambos lados automáticamente. Para ahorrar datos móviles, las sincronizaciones normales solo traen ventas de los últimos 90 días — usa "📜 Cargar historial completo" (consume más datos) si necesitas ver/reportar ventas más viejas.</p>
       <details style="margin-top:14px">
         <summary style="font:600 12px var(--sans);cursor:pointer;color:var(--indigo)">📋 Instrucciones de configuración</summary>
         <div style="font-size:12px;color:var(--txt2);margin-top:8px;line-height:1.8;background:var(--bg);padding:12px;border-radius:8px">
@@ -2032,7 +2033,16 @@ function doGet(e) {
   if (action === 'get') {
     const rows = sheet.getDataRange().getValues();
     const headers = rows[0];
-    const data = rows.slice(1).map(r => Object.fromEntries(headers.map((h,i)=>[h,r[i]])));
+    let data = rows.slice(1).map(r => Object.fromEntries(headers.map((h,i)=>[h,r[i]])));
+    // "ventas" es lo que más pesa a la larga (crece con cada venta, para
+    // siempre) — con el parámetro opcional "dias" el cliente puede pedir
+    // solo las recientes en vez de bajar TODO el historial cada vez que
+    // sincroniza, ahorrando datos móviles. Sin "dias" (p.ej. "Cargar
+    // historial completo") se sigue regresando todo, igual que antes.
+    if ((e.parameter.sheet||'productos') === 'ventas' && e.parameter.dias) {
+      const corte = new Date(Date.now() - parseInt(e.parameter.dias, 10) * 24*3600*1000);
+      data = data.filter(r => new Date(r.fecha) >= corte);
+    }
     return json({ok:true, data});
   }
   return json({ok:false, error:'Unknown action'});
@@ -2751,10 +2761,11 @@ function setSyncState(state, msg){
 // ══════════════════════════════════════════════════════════
 //  GOOGLE SHEETS API
 // ══════════════════════════════════════════════════════════
-async function sheetsGet(sheet) {
+async function sheetsGet(sheet, extra = {}) {
   if (!cfg.url) return null;
   try {
-    const r = await fetch(`${cfg.url}?action=get&sheet=${sheet}&secret=${encodeURIComponent(cfg.syncSecret||'')}`);
+    const params = new URLSearchParams({ action:'get', sheet, secret: cfg.syncSecret||'', ...extra });
+    const r = await fetch(`${cfg.url}?${params}`);
     const j = await r.json();
     return j.ok ? j.data : null;
   } catch { return null; }
@@ -2876,21 +2887,34 @@ function normalizarFilasSheet(sheetName, filas) {
   });
 }
 
+// Cuántos días de ventas se bajan por default en cada sincronización, en vez
+// de todo el historial completo — las ventas son lo que más pesa a la larga
+// (crece para siempre), así que limitar esto es lo que más ahorra datos
+// móviles. Usa cargarHistorialCompleto() cuando de verdad haga falta ver
+// ventas más viejas que esto (p.ej. un reporte anual).
+const DIAS_HISTORIAL_SYNC = 90;
+
 // Trae lo que hay en Google Sheets y reemplaza la base local con eso — es el
 // complemento de syncNow(): ese solo sube, este solo baja. Hace falta para
 // que un dispositivo nuevo (o uno que se quedó atrás) pueda ponerse al día
 // con lo que subieron otros dispositivos, cosa que antes no existía.
-async function cargarDeSheets(avisar = true) {
+//
+// completo=true trae TODO el historial de ventas (más consumo de datos) y
+// reemplaza el local por completo, igual que antes de agregar DIAS_HISTORIAL_SYNC.
+// completo=false (default) solo pide las últimas DIAS_HISTORIAL_SYNC días y
+// las COMBINA con las que ya había localmente — así ventas más viejas que
+// ese rango, que este dispositivo ya tenía guardadas, no se pierden.
+async function cargarDeSheets(avisar = true, completo = false) {
   if (!cfg.url) return false;
   setSyncState('syncing');
   try {
     const [productos, ventasRaw, movimientos, facturas, cortes, recargas, vendedores, configRaw, pins] = await Promise.all([
-      sheetsGet('productos'), sheetsGet('ventas'), sheetsGet('movimientos'),
+      sheetsGet('productos'), sheetsGet('ventas', completo ? {} : {dias: DIAS_HISTORIAL_SYNC}), sheetsGet('movimientos'),
       sheetsGet('facturas'), sheetsGet('cortes'), sheetsGet('recargas'), sheetsGet('vendedores'),
       sheetsGet('config'), sheetsGetPins(),
     ]);
     if (productos === null) throw new Error('Sin respuesta del Apps Script');
-    const ventas = normalizarFilasSheet('ventas', ventasRaw).map(v => {
+    const ventasDescargadas = normalizarFilasSheet('ventas', ventasRaw).map(v => {
       let items = [];
       try { items = typeof v.items === 'string' ? JSON.parse(v.items || '[]') : (v.items || []); }
       catch { items = []; }
@@ -2900,7 +2924,12 @@ async function cargarDeSheets(avisar = true) {
     // se pegan aquí por id, tomados de Propiedades del script.
     const vendedorPins = (pins && pins.vendedorPins) || {};
     db.productos   = normalizarFilasSheet('productos', productos);
-    db.ventas      = ventas;
+    if (completo) {
+      db.ventas = ventasDescargadas;
+    } else {
+      const idsDescargados = new Set(ventasDescargadas.map(v => v.id));
+      db.ventas = [...db.ventas.filter(v => !idsDescargados.has(v.id)), ...ventasDescargadas];
+    }
     db.movimientos = normalizarFilasSheet('movimientos', movimientos);
     db.facturas    = normalizarFilasSheet('facturas', facturas);
     db.cortes      = normalizarFilasSheet('cortes', cortes);
@@ -2959,6 +2988,18 @@ async function descargarDeSheetsManual() {
   if ((db.productos.length || db.ventas.length) &&
       !confirm('Esto reemplazará los datos de ESTE dispositivo con los que hay en Google Sheets. ¿Continuar?')) return;
   const ok = await cargarDeSheets();
+  if (ok) refrescarVistasTrasDescarga();
+}
+
+// Solo trae ventas de los últimos DIAS_HISTORIAL_SYNC días por default (ver
+// cargarDeSheets) para gastar poco de datos móviles en el uso normal. Este
+// botón es para cuando de verdad se necesita ver/reportar ventas más viejas
+// que eso — usa más datos que una descarga normal, por eso es una acción
+// aparte y no lo que pasa siempre.
+async function cargarHistorialCompleto() {
+  if (!cfg.url) { toast('Configura la URL del Apps Script primero','warn'); return; }
+  if (!confirm('Esto descarga TODO el historial de ventas desde Google Sheets (consume más datos que una sincronización normal). ¿Continuar?')) return;
+  const ok = await cargarDeSheets(true, true);
   if (ok) refrescarVistasTrasDescarga();
 }
 

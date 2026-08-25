@@ -27,7 +27,16 @@ function doGet(e) {
   if (action === 'get') {
     const rows = sheet.getDataRange().getValues();
     const headers = rows[0];
-    const data = rows.slice(1).map(r => Object.fromEntries(headers.map((h,i)=>[h,r[i]])));
+    let data = rows.slice(1).map(r => Object.fromEntries(headers.map((h,i)=>[h,r[i]])));
+    // "ventas" es lo que más pesa a la larga (crece con cada venta, para
+    // siempre) — con el parámetro opcional "dias" el cliente puede pedir
+    // solo las recientes en vez de bajar TODO el historial cada vez que
+    // sincroniza, ahorrando datos móviles. Sin "dias" (p.ej. "Cargar
+    // historial completo") se sigue regresando todo, igual que antes.
+    if ((e.parameter.sheet||'productos') === 'ventas' && e.parameter.dias) {
+      const corte = new Date(Date.now() - parseInt(e.parameter.dias, 10) * 24*3600*1000);
+      data = data.filter(r => new Date(r.fecha) >= corte);
+    }
     return json({ok:true, data});
   }
   return json({ok:false, error:'Unknown action'});
