@@ -3927,12 +3927,17 @@ async function chequearEstadoMP() {
   if (!mpIntentActual) return true;
   const estado = await mpEstadoIntent(mpIntentActual);
   if (!estado || !estado.ok) {
-    setMpEstadoTexto('No se pudo consultar el estatus, reintentando…');
+    // [debug temporal] muestra el error crudo en pantalla para diagnosticar
+    // sin tener que entrar a Ejecuciones en Apps Script — quitar después.
+    setMpEstadoTexto('No se pudo consultar el estatus, reintentando… [debug: ' + JSON.stringify(estado) + ']');
     return false;
   }
   const status = estado.data && estado.data.status;
   const paymentStatus = estado.data && estado.data.paymentStatus;
-  setMpEstadoTexto(MP_ESTADO_LABEL[status] || ('Estatus: ' + status));
+  // [debug temporal] igual que arriba — ver el JSON completo tal cual llega,
+  // en vez de solo la etiqueta amigable, para confirmar el valor real de
+  // paymentStatus contra un cobro real. Quitar cuando ya esté confirmado.
+  setMpEstadoTexto((MP_ESTADO_LABEL[status] || ('Estatus: ' + status)) + ' [debug: ' + JSON.stringify(estado.data) + ']');
   // "approved" es el término que Mercado Pago usa en todas sus APIs de pago
   // para un cobro exitoso — se detecta por el estatus del pago (paymentStatus),
   // no de la order en general (status), porque status puede tardar en
