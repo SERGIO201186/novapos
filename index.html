@@ -1804,7 +1804,13 @@ function interpretarRespuestaMaestro(data) {
   if (data.status === 'active') {
     return { master: true, activo: true, cliente: data.clientName || '', vence: data.expiresAt || null, productId: data.productId || '', mensaje: 'OK' };
   }
-  return { master: true, activo: false, cliente: '', vence: null, mensaje: 'Respuesta inesperada del servidor.' };
+  // Ninguno de los status reconocidos: esto no es una decisión del
+  // distribuidor (como "locked"/"expired"), es una respuesta rara — típico
+  // de una señal de datos débil o intermitente (justo antes de que se acabe
+  // el saldo, por ejemplo). "ambiguo" marca este caso para que
+  // verificarLicenciaRemota/programarRecheck lo traten como un problema de
+  // conexión (usar la gracia sin conexión) y no como una desactivación real.
+  return { master: true, activo: false, ambiguo: true, cliente: '', vence: null, mensaje: 'Respuesta inesperada del servidor.' };
 }
 
 async function verificarLicenciaRemota() {
@@ -1828,6 +1834,16 @@ async function verificarLicenciaRemota() {
       return;
     }
     if (!data.activo) {
+      // Una respuesta ambigua (ver interpretarRespuestaMaestro) no es una
+      // desactivación real — es el servidor contestando algo raro, típico de
+      // señal de datos débil/intermitente. Se trata igual que un error de
+      // red: se usa la gracia sin conexión en vez de borrar la licencia y
+      // bloquear la app de golpe.
+      if (data.ambiguo && aplicarGraciaOffline(local, 'No se pudo confirmar la licencia')) return;
+      if (data.ambiguo) {
+        lgSet('📡','No se pudo confirmar la licencia','Hubo un problema al verificar tu licencia. Conéctate a una red estable e inténtalo de nuevo.',{retry:true});
+        return;
+      }
       localStorage.removeItem('nova_licencia');
       lgSet('🚫','Licencia desactivada', data.mensaje || 'Tu licencia fue desactivada o venció. Contacta a tu distribuidor.',{wa:true});
       return;
@@ -1839,18 +1855,25 @@ async function verificarLicenciaRemota() {
     activarModoPro(licenciaInfo);
     programarRecheck();
   } catch (err) {
-    const horas = local.verificadoEn ? (Date.now()-local.verificadoEn)/3600000 : Infinity;
-    if (horas <= GRACIA_OFFLINE_HORAS) {
-      licenciaInfo = local;
-      document.getElementById('license-gate').style.display = 'none';
-      iniciarApp();
-      activarModoPro(licenciaInfo);
-      toast(`Sin conexión — modo offline (${Math.max(0,Math.round(GRACIA_OFFLINE_HORAS-horas))}h restantes para reconectar)`,'warn');
-      programarRecheck();
-    } else {
-      lgSet('📡','Sin conexión a internet','Esta copia necesita conectarse para revalidar la licencia. Conéctate e inténtalo de nuevo.',{retry:true});
-    }
+    if (aplicarGraciaOffline(local, 'Sin conexión')) return;
+    lgSet('📡','Sin conexión a internet','Esta copia necesita conectarse para revalidar la licencia. Conéctate e inténtalo de nuevo.',{retry:true});
   }
+}
+
+// Compartido entre verificarLicenciaRemota (error de red o respuesta
+// ambigua) y usado para no duplicar la misma lógica de "¿todavía está
+// dentro de las horas de gracia?" en varios lugares. Regresa true si pudo
+// arrancar la app en modo offline con la licencia guardada.
+function aplicarGraciaOffline(local, motivo) {
+  const horas = local && local.verificadoEn ? (Date.now()-local.verificadoEn)/3600000 : Infinity;
+  if (horas > GRACIA_OFFLINE_HORAS) return false;
+  licenciaInfo = local;
+  document.getElementById('license-gate').style.display = 'none';
+  iniciarApp();
+  activarModoPro(licenciaInfo);
+  toast(`${motivo} — modo offline (${Math.max(0,Math.round(GRACIA_OFFLINE_HORAS-horas))}h restantes para reconectar)`,'warn');
+  programarRecheck();
+  return true;
 }
 
 async function lgVerificar() {
@@ -1880,11 +1903,15 @@ function programarRecheck() {
     if (!local) return;
     try {
       const data = interpretarRespuestaMaestro(await consultarServidor(local.clave));
-      if (data.master === false || !data.activo) {
+      // Una respuesta ambigua (ver interpretarRespuestaMaestro) no interrumpe
+      // un turno que ya está en curso — mismo criterio que un error de red
+      // (catch de abajo): no se sabe si de verdad se desactivó, así que se
+      // deja todo como está y se reintenta en el siguiente recheck.
+      if (data.master === false || (!data.activo && !data.ambiguo)) {
         localStorage.removeItem('nova_licencia');
         document.getElementById('license-gate').style.display = 'flex';
         lgSet('🚫','Licencia desactivada', data.mensaje || 'Tu licencia fue desactivada. Contacta a tu distribuidor.',{wa:true});
-      } else {
+      } else if (data.activo) {
         setLicenciaLocal({ ...local, cliente:data.cliente||local.cliente, vence:data.vence||local.vence, productId:data.productId||local.productId, verificadoEn: Date.now() });
       }
     } catch { /* sin conexión: no interrumpir, ya se validó al abrir la app */ }
