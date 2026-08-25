@@ -795,7 +795,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
         </div>
         <div class="field">
           <label>Fondo inicial ($)</label>
-          <input type="number" id="caja-fondo" value="1000" min="0">
+          <input type="number" id="caja-fondo" value="300" min="0">
         </div>
         <button class="btn btn-primary btn-full" onclick="abrirCaja()">▶ Abrir caja</button>
       </div>
@@ -975,6 +975,8 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
         <option value="mes" selected>Este mes</option>
         <option value="todo">Todo</option>
       </select>
+      <label style="margin:0;white-space:nowrap;align-self:center">Empleado:</label>
+      <select id="rep-emp" onchange="renderReportes()"><option value="">Todos</option></select>
     </div>
     <div class="tiles">
       <div class="tile verde"><div class="t-lbl">Ventas</div><div class="t-val" id="r-vtot">$0</div><div class="t-sub" id="r-vn">0 tickets</div></div>
@@ -993,10 +995,12 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
     <div class="filter-row">
       <input id="rv-q" placeholder="🔍 Buscar folio o producto…" oninput="renderHistorial()">
       <input type="date" id="rv-fecha" onchange="renderHistorial()">
+      <select id="rv-emp" onchange="renderHistorial()"><option value="">Todos los empleados</option></select>
+      <select id="rv-turno" onchange="renderHistorial()"><option value="">Todos los turnos</option></select>
     </div>
     <div class="tbl-wrap">
       <table>
-        <thead><tr><th>Fecha</th><th>Folio</th><th>Arts</th><th>Total</th><th>Método</th><th></th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Folio</th><th>Arts</th><th>Total</th><th>Método</th><th>Empleado</th><th></th></tr></thead>
         <tbody id="rv-tbody"></tbody>
       </table>
     </div>
@@ -1391,6 +1395,16 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
   <div class="modal" style="max-width:380px">
     <h3>⏹ Cerrar caja</h3>
     <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Cuenta el efectivo físico que hay en el cajón antes de cerrar, para comparar contra lo que el sistema espera.</p>
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <div class="cambio-box" style="flex:1;margin:0">
+        <div class="lbl">Venta del día</div>
+        <div class="num" id="cierre-venta-num" style="font-size:16px">$0.00</div>
+      </div>
+      <div class="cambio-box" style="flex:1;margin:0">
+        <div class="lbl">Fondo (se queda en caja)</div>
+        <div class="num" id="cierre-fondo-num" style="font-size:16px">$0.00</div>
+      </div>
+    </div>
     <div class="cobrar-total-disp" style="margin-bottom:14px">
       <div class="lbl">Efectivo esperado en caja</div>
       <div class="num" id="cierre-esperado-num">$0.00</div>
@@ -4606,6 +4620,8 @@ function cerrarCaja() {
   if (!db.caja.abierta) return;
   const preview = calcularResumenTurno(new Date().toISOString());
   cierreEsperadoActual = preview.efectivoEsperado;
+  document.getElementById('cierre-venta-num').textContent = mxn(preview.ventasTotal);
+  document.getElementById('cierre-fondo-num').textContent = mxn(preview.fondo);
   document.getElementById('cierre-esperado-num').textContent = mxn(preview.efectivoEsperado);
   const contadoEl = document.getElementById('cierre-contado');
   contadoEl.value = '';
@@ -4680,7 +4696,11 @@ function renderCaja() {
   const ing  = movH.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+m.monto,0);
   const egr  = movH.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+m.monto,0);
   const vtasH= db.ventas.filter(v=>v.fecha.startsWith(h)).length;
-  const saldo= db.caja.fondo+ing-egr;
+  // A propósito NO incluye el fondo — es el movimiento del día (ventas +
+  // ingresos manuales - egresos), para que arranque en $0.00 al abrir la
+  // caja en vez de mostrar de entrada el fondo como si fuera venta. El
+  // fondo se ve aparte, en su propio campo, y en el resumen de cierre.
+  const saldo= ing-egr;
 
   document.getElementById('caja-saldo-big').textContent = mxn(saldo);
   document.getElementById('caja-ing-hoy').textContent   = mxn(ing);
@@ -4898,9 +4918,11 @@ ${html}
 // ══════════════════════════════════════════════════════════
 function getVentasFiltradas() {
   const per = document.getElementById('rep-per').value;
+  const emp = document.getElementById('rep-emp').value;
   const now = new Date();
   return db.ventas.filter(v=>{
     const d=new Date(v.fecha);
+    if (emp && (v.vendedor||'')!==emp) return false;
     if(per==='hoy') return d.toDateString()===now.toDateString();
     if(per==='sem') return (now-d)<7*86400000;
     if(per==='mes') return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear();
@@ -4908,7 +4930,33 @@ function getVentasFiltradas() {
   });
 }
 
+// Llena los selects de "Empleado" (Resumen y Ventas) y "Turno" (Ventas) con
+// lo que realmente hay en los datos — para poder ver cuánto vendió cada
+// quien, y separar la información de un turno específico (entre que se
+// abrió y se cerró la caja) del resto.
+function refreshFiltrosReportes() {
+  const empleados = [...new Set(db.ventas.map(v=>v.vendedor).filter(Boolean))].sort();
+  ['rep-emp','rv-emp'].forEach(id => {
+    const sel = document.getElementById(id); if (!sel) return;
+    const actual = sel.value;
+    sel.innerHTML = `<option value="">${id==='rep-emp'?'Todos':'Todos los empleados'}</option>` +
+      empleados.map(e=>`<option value="${esc(e)}">${esc(e)}</option>`).join('');
+    if (empleados.includes(actual)) sel.value = actual;
+  });
+  const selTurno = document.getElementById('rv-turno');
+  if (selTurno) {
+    const actual = selTurno.value;
+    selTurno.innerHTML = '<option value="">Todos los turnos</option>' + [...db.cortes].reverse().map(c => {
+      const f = d => new Date(d).toLocaleString('es-MX',{dateStyle:'short',timeStyle:'short'});
+      const label = `${f(c.apertura)} – ${f(c.cierre)}${c.vendedor?' · '+c.vendedor:''}`;
+      return `<option value="${esc(c.folio||'')}">${esc(label)}</option>`;
+    }).join('');
+    if ([...selTurno.options].some(o=>o.value===actual)) selTurno.value = actual;
+  }
+}
+
 function renderReportes() {
+  refreshFiltrosReportes();
   const vs = getVentasFiltradas();
   const tot  = vs.reduce((s,v)=>s+v.total,0);
   const cost = vs.reduce((s,v)=>s+v.items.reduce((ss,i)=>ss+(i.costo||0)*i.qty,0),0);
@@ -4937,21 +4985,28 @@ function renderBarChart() {
 }
 
 function renderHistorial() {
+  refreshFiltrosReportes();
   const q    = document.getElementById('rv-q').value.toLowerCase();
   const fecha= document.getElementById('rv-fecha').value;
+  const emp  = document.getElementById('rv-emp').value;
+  const folioTurno = document.getElementById('rv-turno').value;
+  const turno = folioTurno ? db.cortes.find(c=>c.folio===folioTurno) : null;
   const vs   = [...db.ventas].reverse().filter(v=>{
     const mq = !q||(v.folio.toLowerCase().includes(q)||v.items.some(i=>i.nombre.toLowerCase().includes(q)));
     const mf = !fecha||v.fecha.startsWith(fecha);
-    return mq&&mf;
+    const me = !emp||(v.vendedor||'')===emp;
+    const mt = !turno||(v.fecha>=turno.apertura&&v.fecha<=turno.cierre);
+    return mq&&mf&&me&&mt;
   });
   const tbody = document.getElementById('rv-tbody');
-  if (!vs.length) { tbody.innerHTML=`<tr><td colspan="6" style="text-align:center;color:var(--txt2);padding:20px">Sin ventas</td></tr>`; return; }
+  if (!vs.length) { tbody.innerHTML=`<tr><td colspan="7" style="text-align:center;color:var(--txt2);padding:20px">Sin ventas</td></tr>`; return; }
   tbody.innerHTML = vs.map(v=>`<tr>
     <td style="font-size:11px;white-space:nowrap">${new Date(v.fecha).toLocaleString('es-MX',{dateStyle:'short',timeStyle:'short'})}</td>
     <td><span class="badge badge-indigo">${v.folio}</span></td>
     <td>${v.items.length}</td>
     <td style="font:600 13px var(--mono);color:var(--verde)">${mxn(v.total)}</td>
     <td><span class="badge badge-verde">${v.metodo}</span></td>
+    <td style="font-size:12px">${esc(v.vendedor)||'—'}</td>
     <td><button class="btn btn-ghost btn-sm" onclick="verVenta('${v.id}')">Ver</button></td>
   </tr>`).join('');
 }
