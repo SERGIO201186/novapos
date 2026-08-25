@@ -267,6 +267,11 @@ const SHEET_HEADERS = {
   cortes:      ['apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','folio','codigoEmpleado','efectivoEsperado','efectivoContado','faltante'],
   vendedores:  ['id','nombre','codigoEmpleado'],
   config:      ['key','value'],
+  // Kardex de entradas de mercancía — separado de "movimientos" (que es
+  // dinero, ingresos/egresos de caja) para poder comparar entradas vs.
+  // ventas vs. conteo físico y saber si una merma es real o solo mal
+  // registrada como si fuera venta o al revés.
+  entradas_inventario: ['id','fecha','productoId','productoNombre','cantidad','stockAntes','stockDespues','usuario'],
 };
 
 function getSheet(name) {

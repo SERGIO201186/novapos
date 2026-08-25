@@ -735,6 +735,18 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
     <p id="inv-scan-msg" style="margin-top:8px;font-size:12px;display:none"></p>
   </div>
 
+  <!-- Kardex de entradas: para comparar después contra ventas y conteo
+       físico y saber si una merma es real o solo una entrada mal registrada. -->
+  <details class="card">
+    <summary style="font:700 13px var(--sans);cursor:pointer">📜 Historial de entradas de inventario</summary>
+    <div class="tbl-wrap" style="margin-top:10px">
+      <table>
+        <thead><tr><th>Fecha</th><th>Producto</th><th>Cantidad</th><th>Stock antes → después</th><th>Quién</th></tr></thead>
+        <tbody id="hist-inv-tbody"></tbody>
+      </table>
+    </div>
+  </details>
+
   <div class="card" style="padding:0;overflow:hidden">
     <div style="padding:12px 16px;border-bottom:1px solid var(--border)">
       <div class="filter-row" style="margin:0">
@@ -1476,7 +1488,11 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
       <div class="field" style="margin:0"><label>Proveedor</label><input id="p-prov" placeholder="Nombre"></div>
       <div class="field" style="margin:0"><label>Precio venta ($) *</label><input type="number" id="p-precio" min="0" step=".01" placeholder="0.00"></div>
       <div class="field" style="margin:0"><label>Costo ($)</label><input type="number" id="p-costo" min="0" step=".01" placeholder="0.00"></div>
-      <div class="field" style="margin:0"><label>Stock *</label><input type="number" id="p-stock" value="0" min="0"></div>
+      <div class="field" style="margin:0">
+        <label id="p-stock-label">Stock *</label>
+        <input type="number" id="p-stock" value="0" min="0" oninput="actualizarResumenStock()">
+        <p id="p-stock-resumen" style="font-size:11px;color:var(--txt2);margin-top:4px;display:none"></p>
+      </div>
       <div class="field" style="margin:0"><label>Stock mínimo</label><input type="number" id="p-smin" value="5" min="0"></div>
       <div class="field campo-vence" style="margin:0"><label class="label-vence-txt">Vencimiento</label><input type="date" id="p-vence"></div>
       <div class="field" style="margin:0"><label>Unidad</label><input id="p-unidad" value="pza" placeholder="pza / caja"></div>
@@ -2273,6 +2289,11 @@ const SHEET_HEADERS = {
   cortes:      ['apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','folio','codigoEmpleado','efectivoEsperado','efectivoContado','faltante'],
   vendedores:  ['id','nombre','codigoEmpleado'],
   config:      ['key','value'],
+  // Kardex de entradas de mercancía — separado de "movimientos" (que es
+  // dinero, ingresos/egresos de caja) para poder comparar entradas vs.
+  // ventas vs. conteo físico y saber si una merma es real o solo mal
+  // registrada como si fuera venta o al revés.
+  entradas_inventario: ['id','fecha','productoId','productoNombre','cantidad','stockAntes','stockDespues','usuario'],
 };
 
 function getSheet(name) {
@@ -2342,7 +2363,7 @@ async function copyScript() {
 // ══════════════════════════════════════════════════════════
 //  STATE
 // ══════════════════════════════════════════════════════════
-let db = { productos:[], ventas:[], movimientos:[], facturas:[], caja:{abierta:false,fondo:0,fechaApertura:null}, cortes:[], recargas:[], vendedores:[] };
+let db = { productos:[], ventas:[], movimientos:[], facturas:[], caja:{abierta:false,fondo:0,fechaApertura:null}, cortes:[], recargas:[], vendedores:[], entradasInventario:[] };
 // mpDeviceId: a propósito NO se sube nunca a guardarConfigEnSheets() —
 // identifica la terminal física Point pareada con ESTE dispositivo/caja,
 // que puede ser distinta en cada tablet si el negocio tiene varias.
@@ -2374,6 +2395,7 @@ function load() {
   if (!db.cortes) db.cortes = [];
   if (!db.recargas) db.recargas = [];
   if (!db.vendedores) db.vendedores = [];
+  if (!db.entradasInventario) db.entradasInventario = [];
   if (!db.caja) db.caja = {abierta:false,fondo:0,fechaApertura:null};
 }
 
@@ -2848,6 +2870,7 @@ async function syncNow() {
         // El NIP de cada vendedor no va en la hoja — vive en Propiedades del
         // script (ver sheetsSetPin) y se sube aparte, no con este botón.
         vendedores:  (db.vendedores || []).map(({id, nombre}) => ({id, nombre})),
+        entradas_inventario: db.entradasInventario || [],
       }
     });
     const ok = !!(res && res.ok);
@@ -2874,6 +2897,7 @@ const CAMPOS_NUMERICOS_SHEET = {
   recargas:    ['monto','comisionPct','gananciaEstimada'],
   cortes:      ['fondo','ingresos','egresos','saldoFinal','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','efectivoEsperado','efectivoContado','faltante'],
   vendedores:  [],
+  entradas_inventario: ['cantidad','stockAntes','stockDespues'],
 };
 function normalizarFilasSheet(sheetName, filas) {
   const numFields = CAMPOS_NUMERICOS_SHEET[sheetName] || [];
@@ -2908,9 +2932,10 @@ async function cargarDeSheets(avisar = true, completo = false) {
   if (!cfg.url) return false;
   setSyncState('syncing');
   try {
-    const [productos, ventasRaw, movimientos, facturas, cortes, recargas, vendedores, configRaw, pins] = await Promise.all([
+    const [productos, ventasRaw, movimientos, facturas, cortes, recargas, vendedores, entradasInv, configRaw, pins] = await Promise.all([
       sheetsGet('productos'), sheetsGet('ventas', completo ? {} : {dias: DIAS_HISTORIAL_SYNC}), sheetsGet('movimientos'),
       sheetsGet('facturas'), sheetsGet('cortes'), sheetsGet('recargas'), sheetsGet('vendedores'),
+      sheetsGet('entradas_inventario'),
       sheetsGet('config'), sheetsGetPins(),
     ]);
     if (productos === null) throw new Error('Sin respuesta del Apps Script');
@@ -2936,6 +2961,7 @@ async function cargarDeSheets(avisar = true, completo = false) {
     db.recargas    = normalizarFilasSheet('recargas', recargas);
     db.vendedores  = normalizarFilasSheet('vendedores', vendedores)
       .map(v => ({ ...v, pin: vendedorPins[v.id] || '' }));
+    db.entradasInventario = normalizarFilasSheet('entradas_inventario', entradasInv);
     save();
 
     // Trae también los datos del negocio que guardarConfigEnSheets() sube —
@@ -2965,7 +2991,7 @@ async function cargarDeSheets(avisar = true, completo = false) {
 function refrescarVistasTrasDescarga() {
   renderPosGrid(); renderInv(); renderCaja(); renderReportes();
   renderFacturas(); renderVentasParaFacturar(); renderRecargas();
-  renderVendedores();
+  renderVendedores(); renderHistorialInventario();
   // Refleja en los campos de Configuración lo que acaba de bajar de Sheets
   // (nombre del negocio, NIP de dueño/inventario, etc.), por si la pantalla
   // de Configuración ya estaba abierta cuando se descargó.
@@ -3569,6 +3595,10 @@ function _openProdModal(bc='') {
   document.getElementById('p-unidad').value = getGiro().unidadDefault;
   if (bc) document.getElementById('p-bc').value = bc;
   refreshCatDl();
+  // Producto nuevo: el campo Stock sigue siendo la existencia inicial
+  // (no hay "stock actual" del cual partir, todavía no existe el producto).
+  document.getElementById('p-stock-label').textContent = 'Stock *';
+  document.getElementById('p-stock-resumen').style.display = 'none';
   openModal('modal-prod');
 }
 
@@ -3584,13 +3614,33 @@ function _editProd(id) {
   document.getElementById('p-prov').value  = p.proveedor||'';
   document.getElementById('p-precio').value= p.precio;
   document.getElementById('p-costo').value = p.costo||'';
-  document.getElementById('p-stock').value = p.stock;
+  // Al editar un producto YA existente, el campo Stock deja de ser el valor
+  // absoluto (sobreescribirlo a ciegas es justo lo que hacía que un ingreso
+  // de mercancía se confundiera con merma: nadie recordaba si "80" era el
+  // conteo real o un error de captura). Ahora empieza en 0 = "cuánto estás
+  // ingresando ahora", y se suma al stock actual — ver actualizarResumenStock().
+  document.getElementById('p-stock').value = 0;
+  document.getElementById('p-stock-label').textContent = 'Cantidad a ingresar';
   document.getElementById('p-smin').value  = p.stockmin??5;
   document.getElementById('p-vence').value = p.vence||'';
   document.getElementById('p-unidad').value= p.unidad||'pza';
   document.getElementById('p-desc').value  = p.desc||'';
   refreshCatDl();
+  actualizarResumenStock();
   openModal('modal-prod');
+}
+
+// Muestra "tienes X, vas a ingresar Y, quedará Z" en vivo mientras se
+// escribe, para que quede claro ANTES de guardar que se está sumando al
+// stock actual y no reemplazándolo — el resumen que se pidió para no
+// confundir una entrada de mercancía con una merma.
+function actualizarResumenStock() {
+  const resumen = document.getElementById('p-stock-resumen');
+  if (!editProdId) { resumen.style.display = 'none'; return; }
+  const p = db.productos.find(x=>x.id===editProdId); if (!p) { resumen.style.display='none'; return; }
+  const cantidad = parseInt(document.getElementById('p-stock').value) || 0;
+  resumen.style.display = 'block';
+  resumen.textContent = `Actual: ${p.stock} + ${cantidad} = ${p.stock + cantidad}`;
 }
 
 function refreshCatDl() {
@@ -3610,9 +3660,16 @@ async function guardarProducto() {
   const bc    = document.getElementById('p-bc').value.trim();
   const nom   = document.getElementById('p-nom').value.trim();
   const precio= parseFloat(document.getElementById('p-precio').value);
-  const stock = parseInt(document.getElementById('p-stock').value);
-  if (!bc||!nom||isNaN(precio)||isNaN(stock)) { toast('Completa los campos obligatorios (*)','warn'); return; }
+  const stockCampo = parseInt(document.getElementById('p-stock').value);
+  if (!bc||!nom||isNaN(precio)||isNaN(stockCampo)) { toast('Completa los campos obligatorios (*)','warn'); return; }
   if (db.productos.find(p=>p.barcode===bc && p.id!==editProdId)) { toast('Ya existe un producto con ese código','err'); return; }
+
+  // Al editar, el campo Stock ya no es el valor final — es cuánto se está
+  // ingresando (ver _editProd/actualizarResumenStock). Se calcula aquí el
+  // total real para no depender de que nadie escriba la suma a mano.
+  const stockAntes = editProdId ? (db.productos.find(p=>p.id===editProdId)?.stock || 0) : 0;
+  const cantidadIngresada = stockCampo;
+  const stock = editProdId ? (stockAntes + cantidadIngresada) : stockCampo;
 
   const data = {
     barcode:bc, nombre:nom,
@@ -3629,7 +3686,7 @@ async function guardarProducto() {
     const i = db.productos.findIndex(p=>p.id===editProdId);
     const skuExistente = db.productos[i].sku || generarSKU(data.cat);
     db.productos[i] = { ...db.productos[i], ...data, sku: skuExistente };
-    toast('Producto actualizado ✓');
+    toast(cantidadIngresada ? `Producto actualizado ✓ — stock: ${stockAntes} + ${cantidadIngresada} = ${stock}` : 'Producto actualizado ✓');
   } else {
     const sku = generarSKU(data.cat);
     db.productos.push({ id:uid(), sku, ...data });
@@ -3641,8 +3698,30 @@ async function guardarProducto() {
     ? db.productos.find(p=>p.id===editProdId)
     : db.productos[db.productos.length-1];
   saveAndSyncFast('productos', prodGuardado);
+  // Deja registro en el kardex de entradas siempre que el stock haya subido
+  // (al ingresar mercancía a un producto existente, o al dar de alta uno
+  // nuevo con existencia inicial) — así después se puede comparar entradas
+  // vs. ventas vs. conteo físico para saber si una merma es real.
+  if (cantidadIngresada > 0) registrarEntradaInventario(prodGuardado, cantidadIngresada, stockAntes, stock);
   renderInv();
   renderPosGrid();
+}
+
+// Registra una fila en el kardex de entradas de inventario (hoja aparte de
+// "movimientos", que es de dinero, no de mercancía) y la sincroniza como
+// cualquier otro registro. Se usa tanto al ingresar mercancía desde "Editar
+// producto" como al escanear en "Agregar stock escaneando" (invScan).
+function registrarEntradaInventario(producto, cantidad, stockAntes, stockDespues) {
+  const entrada = {
+    id: uid(), fecha: new Date().toISOString(),
+    productoId: producto.id, productoNombre: producto.nombre,
+    cantidad, stockAntes, stockDespues,
+    usuario: db.caja.vendedorNombre || '',
+  };
+  db.entradasInventario = db.entradasInventario || [];
+  db.entradasInventario.push(entrada);
+  saveAndSyncFast('entradas_inventario', entrada);
+  renderHistorialInventario();
 }
 
 async function eliminarProd(id) { requiereNip(() => _eliminarProd(id)); }
@@ -3670,12 +3749,14 @@ function _invScan(bc) {
     document.getElementById('inv-bc').value='';
     _openProdModal(bc); return;
   }
+  const stockAntes = p.stock;
   p.stock += qty;
   msg.style.display='block'; msg.style.color='var(--verde)';
-  msg.innerHTML = `✅ <strong>${esc(p.nombre)}</strong> → stock: ${p.stock-qty} + ${qty} = <strong>${p.stock}</strong>`;
+  msg.innerHTML = `✅ <strong>${esc(p.nombre)}</strong> → stock: ${stockAntes} + ${qty} = <strong>${p.stock}</strong>`;
   document.getElementById('inv-bc').value='';
   document.getElementById('inv-qty').value=1;
   saveAndSyncFast('productos', p);
+  registrarEntradaInventario(p, qty, stockAntes, p.stock);
   renderInv();
   toast(`+${qty} unidades a ${p.nombre}`);
 }
@@ -3721,6 +3802,27 @@ function renderInv() {
       </td>
     </tr>`;
   }).join('');
+  renderHistorialInventario();
+}
+
+// Kardex de entradas de mercancía: las últimas 20, más recientes primero.
+// Sirve para comparar contra ventas y conteo físico y saber si una merma es
+// real o solo una entrada mal registrada.
+function renderHistorialInventario() {
+  const tbody = document.getElementById('hist-inv-tbody');
+  if (!tbody) return;
+  const entradas = [...(db.entradasInventario||[])].sort((a,b)=> new Date(b.fecha)-new Date(a.fecha)).slice(0,20);
+  if (!entradas.length) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--txt2);padding:20px">Sin entradas registradas todavía</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = entradas.map(e => `<tr>
+    <td style="font-size:12px;color:var(--txt2)">${new Date(e.fecha).toLocaleString('es-MX')}</td>
+    <td><strong>${esc(e.productoNombre)}</strong></td>
+    <td style="font-family:var(--mono);color:var(--verde)">+${e.cantidad}</td>
+    <td style="font-family:var(--mono)">${e.stockAntes} → ${e.stockDespues}</td>
+    <td style="font-size:12px">${esc(e.usuario)||'—'}</td>
+  </tr>`).join('');
 }
 
 function exportCSV() {
