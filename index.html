@@ -2071,12 +2071,11 @@ function doPost(e) {
     // directamente contra la documentación oficial (create, consultar por id
     // y cancelar) — no /point/integration-api/devices/.../payment-intents,
     // que es la que dio UNAUTHORIZED arriba. El monto va como texto decimal
-    // ("24.00"), no en centavos. El estatus de "pago aprobado" se identifica
-    // por transactions.payments[0].status === 'approved' (el término que usa
-    // Mercado Pago en todas sus APIs de pago) — no se pudo ver un ejemplo con
-    // ese valor exacto en la documentación disponible (solo "created",
-    // "canceled" y "refunded"), así que pruébalo con un cobro pequeño antes
-    // de confiar en él con clientes reales.
+    // ("24.00"), no en centavos. El estatus de "pago aprobado" es
+    // transactions.payments[0].status === 'processed' — confirmado contra un
+    // cobro real de $6 (no 'approved', que es lo que se había asumido antes
+    // sin poder verificarlo y causó que un cobro real se hiciera en la
+    // terminal pero NovaPOS nunca cerrara la venta ni descontara inventario).
     if (action === 'mp_crear_intent') {
       return mpProxy_('POST', '/v1/orders', {
         type: 'point',
@@ -2089,9 +2088,6 @@ function doPost(e) {
     }
     if (action === 'mp_estado_intent') {
       return mpProxy_('GET', '/v1/orders/' + body.paymentIntentId, null, function(data) {
-        // Log temporal para confirmar contra un cobro real qué valores manda
-        // Mercado Pago en status/paymentStatus — quitar una vez confirmado.
-        Logger.log('mp_estado_intent respuesta cruda: ' + JSON.stringify(data));
         var pago = (data.transactions && data.transactions.payments && data.transactions.payments[0]) || {};
         return json({ ok:true, data: { status: data.status, paymentStatus: pago.status || '' } });
       });
@@ -3927,22 +3923,18 @@ async function chequearEstadoMP() {
   if (!mpIntentActual) return true;
   const estado = await mpEstadoIntent(mpIntentActual);
   if (!estado || !estado.ok) {
-    // [debug temporal] muestra el error crudo en pantalla para diagnosticar
-    // sin tener que entrar a Ejecuciones en Apps Script — quitar después.
-    setMpEstadoTexto('No se pudo consultar el estatus, reintentando… [debug: ' + JSON.stringify(estado) + ']');
+    setMpEstadoTexto('No se pudo consultar el estatus, reintentando…');
     return false;
   }
   const status = estado.data && estado.data.status;
   const paymentStatus = estado.data && estado.data.paymentStatus;
-  // [debug temporal] igual que arriba — ver el JSON completo tal cual llega,
-  // en vez de solo la etiqueta amigable, para confirmar el valor real de
-  // paymentStatus contra un cobro real. Quitar cuando ya esté confirmado.
-  setMpEstadoTexto((MP_ESTADO_LABEL[status] || ('Estatus: ' + status)) + ' [debug: ' + JSON.stringify(estado.data) + ']');
-  // "approved" es el término que Mercado Pago usa en todas sus APIs de pago
-  // para un cobro exitoso — se detecta por el estatus del pago (paymentStatus),
-  // no de la order en general (status), porque status puede tardar en
-  // reflejar el cambio o usar otra palabra distinta.
-  if (paymentStatus === 'approved') {
+  setMpEstadoTexto(MP_ESTADO_LABEL[status] || ('Estatus: ' + status));
+  // Confirmado contra un cobro real: el valor de paymentStatus cuando el
+  // pago se aprueba es 'processed' (no 'approved' como se había asumido sin
+  // poder verificarlo contra la documentación — 'approved' nunca llegó a
+  // aparecer, y por eso una venta real se cobraba en la terminal pero
+  // NovaPOS nunca cerraba la venta ni descontaba inventario).
+  if (paymentStatus === 'processed' || paymentStatus === 'approved') {
     ocultarUiCobroMP();
     await confirmarVenta();
     return true;

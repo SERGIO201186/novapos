@@ -93,12 +93,11 @@ function doPost(e) {
     // directamente contra la documentación oficial (create, consultar por id
     // y cancelar) — no /point/integration-api/devices/.../payment-intents,
     // que es la que dio UNAUTHORIZED arriba. El monto va como texto decimal
-    // ("24.00"), no en centavos. El estatus de "pago aprobado" se identifica
-    // por transactions.payments[0].status === 'approved' (el término que usa
-    // Mercado Pago en todas sus APIs de pago) — no se pudo ver un ejemplo con
-    // ese valor exacto en la documentación disponible (solo "created",
-    // "canceled" y "refunded"), así que pruébalo con un cobro pequeño antes
-    // de confiar en él con clientes reales.
+    // ("24.00"), no en centavos. El estatus de "pago aprobado" es
+    // transactions.payments[0].status === 'processed' — confirmado contra un
+    // cobro real de $6 (no 'approved', que es lo que se había asumido antes
+    // sin poder verificarlo y causó que un cobro real se hiciera en la
+    // terminal pero NovaPOS nunca cerrara la venta ni descontara inventario).
     if (action === 'mp_crear_intent') {
       return mpProxy_('POST', '/v1/orders', {
         type: 'point',
@@ -111,9 +110,6 @@ function doPost(e) {
     }
     if (action === 'mp_estado_intent') {
       return mpProxy_('GET', '/v1/orders/' + body.paymentIntentId, null, function(data) {
-        // Log temporal para confirmar contra un cobro real qué valores manda
-        // Mercado Pago en status/paymentStatus — quitar una vez confirmado.
-        Logger.log('mp_estado_intent respuesta cruda: ' + JSON.stringify(data));
         var pago = (data.transactions && data.transactions.payments && data.transactions.payments[0]) || {};
         return json({ ok:true, data: { status: data.status, paymentStatus: pago.status || '' } });
       });
