@@ -4925,6 +4925,7 @@ function buildCorteQrPayload(corte) {
     hora_apertura: hhmm(corte.apertura),
     hora_cierre: hhmm(corte.cierre),
     venta_turno: Math.round(corte.ventasTotal*100)/100,
+    recargas_telefonicas: Math.round((corte.recargasTotal||0)*100)/100,
     // Cuánto efectivo se le entrega físicamente a administración — depende
     // de un paso manual que NovaPOS todavía no cubre, se deja en blanco para
     // que el empleado lo complete del lado de la otra app (ver especificación).
