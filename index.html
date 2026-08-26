@@ -505,7 +505,7 @@ input:checked+.toggle-slider::before{transform:translateX(20px)}
   font:500 13px var(--sans);
   box-shadow:var(--sh-lg);
   opacity:0;transition:.28s;z-index:9999;
-  white-space:nowrap;max-width:90vw;overflow:hidden;text-overflow:ellipsis;
+  white-space:pre-line;overflow-wrap:break-word;max-width:min(92vw,420px);text-align:center;
 }
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 #toast.ok{background:var(--verde-dk)}
@@ -2958,7 +2958,12 @@ function toast(msg, type='ok'){
   const el=document.getElementById('toast');
   el.textContent=msg; el.className='show '+type;
   clearTimeout(toastT);
-  toastT=setTimeout(()=>el.classList.remove('show'),3000);
+  // Un error con el detalle real del servidor puede ser largo — con 3s fijos
+  // se apagaba antes de que diera tiempo a leerlo (sobre todo en celular, ya
+  // envuelto en varias líneas). Se le da más tiempo en proporción al largo
+  // del mensaje, tope 9s para que tampoco se quede pegado para siempre.
+  const duracion = Math.min(9000, Math.max(3000, msg.length * 60));
+  toastT=setTimeout(()=>el.classList.remove('show'),duracion);
 }
 
 // ══════════════════════════════════════════════════════════
