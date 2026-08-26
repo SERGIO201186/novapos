@@ -2709,7 +2709,32 @@ async function iniciarApp() {
   document.getElementById('cfg-iva').value    = cfg.iva ?? 16;
   document.getElementById('cfg-ticket-ancho').value = cfg.ticketAncho || '80';
   document.querySelectorAll('.modal-bg').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m) m.classList.remove('open'); }));
+  instalarAntiDobleToque();
   focusBarcode();
+}
+
+// En tablets/celulares, si hay un campo de texto enfocado con el teclado en
+// pantalla abierto (p.ej. justo después de escanear un código o escribir
+// una cantidad) y se toca OTRO botón (Cobrar, Cancelar, etc.), el navegador
+// consume ese primer toque solo para cerrar el teclado — el clic no le llega
+// al botón todavía, hay que tocar dos veces. Se corrige quitando el foco
+// ANTES de que eso pase (en "pointerdown", que ocurre antes que "click"),
+// así el teclado ya se está cerrando cuando el dedo suelta y el clic sí le
+// llega al botón desde el primer toque.
+function instalarAntiDobleToque() {
+  if (window.__antiDobleToqueInstalado) return;
+  window.__antiDobleToqueInstalado = true;
+  document.addEventListener('pointerdown', e => {
+    const activo = document.activeElement;
+    if (!activo || activo === document.body) return;
+    const esCampo = activo.tagName === 'INPUT' || activo.tagName === 'TEXTAREA' || activo.tagName === 'SELECT';
+    if (!esCampo || activo === e.target || activo.contains(e.target)) return;
+    // Moverse a OTRO campo de texto ya funciona bien solo (el navegador hace
+    // el blur/focus correctamente) — esto es solo para cuando se toca algo
+    // que NO es un campo (un botón, una fila, el fondo de un modal, etc.).
+    if (e.target.closest('input,textarea,select,label')) return;
+    activo.blur();
+  }, true);
 }
 
 // Arrancar verificación de licencia (control remoto del distribuidor) en cuanto carga la página
