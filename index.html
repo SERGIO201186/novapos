@@ -3266,18 +3266,6 @@ function updateSheetsStatusBox(ok) {
   renderRecargas();
 }
 
-// Auto-sync after mutations (en esta demo nunca se activa, ya que no hay
-// forma de capturar una URL de Sheets desde la interfaz pública)
-async function saveAndSync() {
-  save();
-  if (cfg.url && !syncing) {
-    syncing = true;
-    setSyncState('syncing');
-    await syncNow();
-    syncing = false;
-  }
-}
-
 // ══════════════════════════════════════════════════════════
 //  CONFIG
 // ══════════════════════════════════════════════════════════
@@ -4695,8 +4683,13 @@ async function vaCerrarTurno() {
   };
   db.cortes.push(corte);
   closeModal('modal-venta-anterior');
-  await saveAndSync();
   vaTicket = [];
+  // Se guarda e imprime de inmediato, sin esperar la red — si se esperara
+  // aquí a que termine la sincronización, el navegador puede tratar el
+  // window.open() del ticket como un popup no solicitado (ya no lo asocia
+  // con el toque del usuario) y bloquearlo en silencio. La sincronización
+  // del corte se manda en segundo plano justo después.
+  saveAndSyncFast('cortes', corte);
   renderReportes();
   toast('Turno anterior cerrado. Corte generado ✓');
 
@@ -5068,7 +5061,9 @@ async function abrirCaja() {
     pinInput.value = '';
   }
   db.caja = {abierta:true, fondo, fechaApertura:new Date().toISOString(), vendedorId, vendedorNombre};
-  await saveAndSync();
+  // El estado de la caja en vivo es solo local (no hay una hoja "caja" en
+  // la nube) — no hace falta esperar ni disparar una sincronización de red.
+  save();
   document.getElementById('caja-closed').style.display='none';
   document.getElementById('caja-open').style.display='block';
   updateBadge(); renderCaja();
@@ -5177,7 +5172,12 @@ async function confirmarCierreCaja() {
   db.cortes.push(corte);
   db.caja = {abierta:false,fondo:0,fechaApertura:null};
   closeModal('modal-cierre-caja');
-  await saveAndSync();
+  // Se guarda e imprime de inmediato, sin esperar la red — si se esperara
+  // aquí a que termine la sincronización, el navegador puede tratar el
+  // window.open() del ticket como un popup no solicitado (ya no lo asocia
+  // con el toque del usuario) y bloquearlo en silencio. La sincronización
+  // del corte se manda en segundo plano justo después.
+  saveAndSyncFast('cortes', corte);
   document.getElementById('caja-closed').style.display='block';
   document.getElementById('caja-open').style.display='none';
   updateBadge(); renderCaja();
@@ -5194,10 +5194,11 @@ async function registrarMov() {
   const concepto= document.getElementById('mov-concepto').value.trim();
   if (!monto||monto<=0) { toast('Monto inválido','err'); return; }
   if (!concepto) { toast('Escribe un concepto','err'); return; }
-  db.movimientos.push({id:uid(), fecha:new Date().toISOString(), tipo, monto, concepto});
+  const mov = {id:uid(), fecha:new Date().toISOString(), tipo, monto, concepto};
+  db.movimientos.push(mov);
   document.getElementById('mov-monto').value='';
   document.getElementById('mov-concepto').value='';
-  await saveAndSync();
+  saveAndSyncFast('movimientos', mov);
   renderCaja(); updateBadge();
   toast(`${tipo==='ingreso'?'💚':'🔴'} ${tipo} registrado: ${mxn(monto)}`);
 }
@@ -5681,7 +5682,10 @@ async function confirmarFactura() {
   };
   db.facturas.push(factura);
   closeModal('modal-fac-datos');
-  await saveAndSync();
+  // Se guarda y muestra la vista previa de inmediato, sin esperar la red —
+  // ver la nota en confirmarCierreCaja() sobre por qué un window.open()
+  // después de un await de red puede ser bloqueado como popup.
+  saveAndSyncFast('facturas', factura);
   renderFacturas();
   renderVentasParaFacturar();
   toast(`Factura ${factura.folio} generada ✓`);
@@ -5850,7 +5854,8 @@ async function cancelarFacturaActual() {
   if (!confirm(`¿Cancelar la factura ${facturaActual.folio}? Esta acción no se puede deshacer.`)) return;
   const f = db.facturas.find(x=>x.id===facturaActual.id);
   if (f) f.estatus = 'cancelada';
-  await saveAndSync();
+  if (f) saveAndSyncFast('facturas', f);
+  else save();
   closeModal('modal-fac-preview');
   renderFacturas();
   renderVentasParaFacturar();
