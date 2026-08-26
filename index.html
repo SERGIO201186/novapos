@@ -693,6 +693,9 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
       <button class="btn btn-primary btn-full btn-lg" id="btn-cobrar" onclick="openCobrar()">
         💳 Cobrar
       </button>
+      <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="abrirVentaAnterior()">
+        🕐 Venta anterior (otra fecha/turno)
+      </button>
     </div>
   </div>
 
@@ -1312,6 +1315,13 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
       <div id="cfg-vendedores-list"></div>
     </div>
 
+    <div class="card" id="cfg-card-turnos" style="display:none">
+      <div class="card-hd">🕐 Turnos de personal</div>
+      <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Define los turnos de tu negocio (nombre y horario) y qué empleados trabajan cada uno — es informativo, para llevar el rol de personal; no reemplaza la apertura/cierre de caja de cada quien, que sigue siendo libre.</p>
+      <div id="cfg-turnos-list" style="margin-bottom:12px"></div>
+      <button class="btn btn-primary btn-sm" onclick="abrirTurnoModal()">+ Agregar turno</button>
+    </div>
+
     <div class="card" id="cfg-card-owner-pin" style="display:none">
       <div class="card-hd">🔐 Acceso a Configuración</div>
       <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Si lo configuras, esta pantalla de Configuración (incluida esta misma tarjeta) va a pedir este NIP cada vez que alguien intente entrar — solo el dueño debería conocerlo. Déjalo vacío para que Configuración quede abierta como hasta ahora.</p>
@@ -1587,6 +1597,65 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
     <div id="cobrar-botones-normales" class="modal-botones-fijos">
       <button class="btn btn-ghost" style="flex:1" onclick="closeModal('modal-cobrar')">Cancelar</button>
       <button class="btn btn-primary btn-lg" style="flex:2" onclick="iniciarCobro()">✅ Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Venta anterior: para capturar una venta que se realizó de verdad pero no
+     se pudo registrar en su momento (falla del dispositivo, etc.) — con su
+     fecha/hora real, para que caiga en el turno/reporte correcto y no en el
+     de ahorita. No requiere caja abierta (puede ser de un turno ya cerrado). -->
+<div class="modal-bg" id="modal-venta-anterior">
+  <div class="modal">
+    <h3>🕐 Registrar venta anterior</h3>
+    <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Para una venta que sí se realizó pero no se alcanzó a capturar en su momento. Se registra con la fecha/hora real para que cuente en el turno correcto.</p>
+    <div class="cobrar-total-disp">
+      <div class="lbl">Total</div>
+      <div class="num" id="va-total-num">$0.00</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="field" style="margin:0"><label>Fecha real *</label><input type="date" id="va-fecha"></div>
+      <div class="field" style="margin:0"><label>Hora real *</label><input type="time" id="va-hora"></div>
+    </div>
+    <div class="field">
+      <label>Empleado que la realizó</label>
+      <select id="va-empleado"><option value="">— Sin especificar —</option></select>
+    </div>
+    <div class="field">
+      <label>Método de pago</label>
+      <select id="va-metodo" onchange="toggleVaEfectivo()">
+        <option value="efectivo">💵 Efectivo</option>
+        <option value="tarjeta">💳 Tarjeta</option>
+        <option value="transferencia">📱 Transferencia</option>
+      </select>
+    </div>
+    <div id="va-efectivo-ui" class="field">
+      <label>Con cuánto pagó ($)</label>
+      <input type="number" id="va-rec" min="0" step=".01" placeholder="0.00">
+    </div>
+    <div class="modal-botones-fijos">
+      <button class="btn btn-ghost" style="flex:1" onclick="closeModal('modal-venta-anterior')">Cancelar</button>
+      <button class="btn btn-primary btn-lg" style="flex:2" onclick="confirmarVentaAnterior()">✅ Registrar venta</button>
+    </div>
+  </div>
+</div>
+
+<!-- Alta/edición de un turno de personal (Config → Turnos de personal) -->
+<div class="modal-bg" id="modal-turno">
+  <div class="modal" style="max-width:380px">
+    <h3 id="turno-title">➕ Nuevo turno</h3>
+    <div class="field"><label>Nombre *</label><input id="turno-nombre" placeholder="Ej. Mañana"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="field" style="margin:0"><label>Hora inicio *</label><input type="time" id="turno-inicio"></div>
+      <div class="field" style="margin:0"><label>Hora fin *</label><input type="time" id="turno-fin"></div>
+    </div>
+    <div class="field">
+      <label>Empleados asignados</label>
+      <div id="turno-vendedores-list" style="display:flex;flex-direction:column;gap:6px;max-height:180px;overflow-y:auto"></div>
+    </div>
+    <div class="modal-botones-fijos">
+      <button class="btn btn-ghost" style="flex:1" onclick="closeModal('modal-turno')">Cancelar</button>
+      <button class="btn btn-primary" style="flex:2" onclick="guardarTurno()">💾 Guardar</button>
     </div>
   </div>
 </div>
@@ -2025,6 +2094,12 @@ function activarModoPro(lic) {
   if (cardVendedores) cardVendedores.style.display = esVersion2() ? '' : 'none';
   renderVendedores();
 
+  // Turnos de personal — mismo candado de Versión 2 que Vendedores (sin
+  // vendedores dados de alta, asignarlos a un turno no tiene mucho sentido).
+  const cardTurnos = document.getElementById('cfg-card-turnos');
+  if (cardTurnos) cardTurnos.style.display = esVersion2() ? '' : 'none';
+  renderTurnos();
+
   // NIP de dueño — mismo candado exclusivo de Versión 2 que Vendedores.
   const cardOwnerPin = document.getElementById('cfg-card-owner-pin');
   if (cardOwnerPin) cardOwnerPin.style.display = esVersion2() ? '' : 'none';
@@ -2325,6 +2400,9 @@ const SHEET_HEADERS = {
   // ventas vs. conteo físico y saber si una merma es real o solo mal
   // registrada como si fuera venta o al revés.
   entradas_inventario: ['id','fecha','productoId','productoNombre','cantidad','stockAntes','stockDespues','usuario'],
+  // Catálogo de turnos de personal (Mañana/Noche, etc.) — informativo, no
+  // tiene que ver con la apertura/cierre real de cada caja.
+  turnos: ['id','nombre','horaInicio','horaFin','vendedorIds'],
 };
 
 function getSheet(name) {
@@ -2394,7 +2472,7 @@ async function copyScript() {
 // ══════════════════════════════════════════════════════════
 //  STATE
 // ══════════════════════════════════════════════════════════
-let db = { productos:[], ventas:[], movimientos:[], facturas:[], caja:{abierta:false,fondo:0,fechaApertura:null}, cortes:[], recargas:[], vendedores:[], entradasInventario:[] };
+let db = { productos:[], ventas:[], movimientos:[], facturas:[], caja:{abierta:false,fondo:0,fechaApertura:null}, cortes:[], recargas:[], vendedores:[], entradasInventario:[], turnos:[] };
 // mpDeviceId: a propósito NO se sube nunca a guardarConfigEnSheets() —
 // identifica la terminal física Point pareada con ESTE dispositivo/caja,
 // que puede ser distinta en cada tablet si el negocio tiene varias.
@@ -2427,6 +2505,7 @@ function load() {
   if (!db.recargas) db.recargas = [];
   if (!db.vendedores) db.vendedores = [];
   if (!db.entradasInventario) db.entradasInventario = [];
+  if (!db.turnos) db.turnos = [];
   if (!db.caja) db.caja = {abierta:false,fondo:0,fechaApertura:null};
 }
 
@@ -2705,6 +2784,17 @@ async function iniciarApp() {
   // ocultando lo que otros dispositivos ya habían subido. Intentar bajarlo primero.
   if (!db.productos.length && cfg.url) await cargarDeSheets(false);
   if (!db.productos.length) loadDemoData();
+  // Dos turnos por default (Mañana/Noche) para no arrancar en blanco — el
+  // negocio los edita, borra o agrega más desde Configuración cuando quiera.
+  // Solo se siembran si de verdad no hay ninguno (ni local ni bajado de
+  // Sheets), para no pisar lo que ya se configuró en otro dispositivo.
+  if (!db.turnos.length) {
+    db.turnos = [
+      { id: uid(), nombre: 'Mañana', horaInicio: '08:00', horaFin: '20:00', vendedorIds: [] },
+      { id: uid(), nombre: 'Noche',  horaInicio: '20:00', horaFin: '08:00', vendedorIds: [] },
+    ];
+    save();
+  }
   updateBadge();
   setSyncState('idle');
   aplicarGiroUI();
@@ -2927,6 +3017,7 @@ async function syncNow() {
         // script (ver sheetsSetPin) y se sube aparte, no con este botón.
         vendedores:  (db.vendedores || []).map(({id, nombre}) => ({id, nombre})),
         entradas_inventario: db.entradasInventario || [],
+        turnos: (db.turnos || []).map(t => ({ ...t, vendedorIds: JSON.stringify(t.vendedorIds||[]) })),
       }
     });
     const ok = !!(res && res.ok);
@@ -2954,6 +3045,7 @@ const CAMPOS_NUMERICOS_SHEET = {
   cortes:      ['fondo','ingresos','egresos','saldoFinal','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','efectivoEsperado','efectivoContado','faltante'],
   vendedores:  [],
   entradas_inventario: ['cantidad','stockAntes','stockDespues'],
+  turnos: [],
 };
 function normalizarFilasSheet(sheetName, filas) {
   const numFields = CAMPOS_NUMERICOS_SHEET[sheetName] || [];
@@ -2988,10 +3080,10 @@ async function cargarDeSheets(avisar = true, completo = false) {
   if (!cfg.url) return false;
   setSyncState('syncing');
   try {
-    const [productos, ventasRaw, movimientos, facturas, cortes, recargas, vendedores, entradasInv, configRaw, pins] = await Promise.all([
+    const [productos, ventasRaw, movimientos, facturas, cortes, recargas, vendedores, entradasInv, turnosRaw, configRaw, pins] = await Promise.all([
       sheetsGet('productos'), sheetsGet('ventas', completo ? {} : {dias: DIAS_HISTORIAL_SYNC}), sheetsGet('movimientos'),
       sheetsGet('facturas'), sheetsGet('cortes'), sheetsGet('recargas'), sheetsGet('vendedores'),
-      sheetsGet('entradas_inventario'),
+      sheetsGet('entradas_inventario'), sheetsGet('turnos'),
       sheetsGet('config'), sheetsGetPins(),
     ]);
     if (productos === null) throw new Error('Sin respuesta del Apps Script');
@@ -3018,6 +3110,12 @@ async function cargarDeSheets(avisar = true, completo = false) {
     db.vendedores  = normalizarFilasSheet('vendedores', vendedores)
       .map(v => ({ ...v, pin: vendedorPins[v.id] || '' }));
     db.entradasInventario = normalizarFilasSheet('entradas_inventario', entradasInv);
+    db.turnos = normalizarFilasSheet('turnos', turnosRaw).map(t => {
+      let vendedorIds = [];
+      try { vendedorIds = typeof t.vendedorIds === 'string' ? JSON.parse(t.vendedorIds || '[]') : (t.vendedorIds || []); }
+      catch { vendedorIds = []; }
+      return { ...t, vendedorIds };
+    });
     save();
 
     // Trae también los datos del negocio que guardarConfigEnSheets() sube —
@@ -3047,7 +3145,7 @@ async function cargarDeSheets(avisar = true, completo = false) {
 function refrescarVistasTrasDescarga() {
   renderPosGrid(); renderInv(); renderCaja(); renderReportes();
   renderFacturas(); renderVentasParaFacturar(); renderRecargas();
-  renderVendedores(); renderHistorialInventario();
+  renderVendedores(); renderHistorialInventario(); renderTurnos();
   // Refleja en los campos de Configuración lo que acaba de bajar de Sheets
   // (nombre del negocio, NIP de dueño/inventario, etc.), por si la pantalla
   // de Configuración ya estaba abierta cuando se descargó.
@@ -3431,6 +3529,88 @@ function eliminarVendedor(id) {
   if (cfg.url) sheetsSetPin('vendedor', { vendedorId: id, pin: '' });
   renderVendedores();
   toast('Vendedor eliminado', 'warn');
+}
+
+// ══════════════════════════════════════════════════════════
+//  TURNOS DE PERSONAL — catálogo de horarios (Mañana/Noche, o los que sea)
+//  con el personal asignado a cada uno. Es informativo/de rol de personal,
+//  independiente de cuándo cada quien realmente abre/cierra su caja.
+// ══════════════════════════════════════════════════════════
+function renderTurnos() {
+  const list = document.getElementById('cfg-turnos-list');
+  if (!list) return;
+  if (!db.turnos.length) {
+    list.innerHTML = `<p style="font-size:12px;color:var(--txt2)">Sin turnos configurados todavía.</p>`;
+    return;
+  }
+  list.innerHTML = db.turnos.map(t => {
+    const nombres = (t.vendedorIds||[]).map(id => db.vendedores.find(v=>v.id===id)?.nombre).filter(Boolean);
+    return `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--border);gap:8px;flex-wrap:wrap">
+      <span style="font-size:13px">
+        <strong>${esc(t.nombre)}</strong> · ${esc(t.horaInicio)}–${esc(t.horaFin)}<br>
+        <span style="color:var(--txt2);font-size:11px">${nombres.length ? '👤 '+nombres.map(esc).join(', ') : 'Sin personal asignado'}</span>
+      </span>
+      <span style="display:flex;gap:6px;flex-shrink:0">
+        <button class="btn btn-ghost btn-sm" onclick="abrirTurnoModal('${t.id}')">✏️</button>
+        <button class="btn btn-danger btn-sm" onclick="eliminarTurno('${t.id}')">🗑</button>
+      </span>
+    </div>`;
+  }).join('');
+}
+
+let turnoEditId = null;
+function abrirTurnoModal(id) {
+  turnoEditId = id || null;
+  const t = id ? db.turnos.find(x=>x.id===id) : null;
+  document.getElementById('turno-title').textContent = t ? '✏️ Editar turno' : '➕ Nuevo turno';
+  document.getElementById('turno-nombre').value = t?.nombre || '';
+  document.getElementById('turno-inicio').value = t?.horaInicio || '08:00';
+  document.getElementById('turno-fin').value = t?.horaFin || '20:00';
+  const asignados = new Set(t?.vendedorIds || []);
+  const list = document.getElementById('turno-vendedores-list');
+  if (!db.vendedores.length) {
+    list.innerHTML = `<p style="font-size:12px;color:var(--txt2)">Da de alta empleados arriba primero.</p>`;
+  } else {
+    list.innerHTML = db.vendedores.map(v => `
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px">
+        <input type="checkbox" value="${v.id}" ${asignados.has(v.id)?'checked':''}> ${esc(v.nombre)}
+      </label>`).join('');
+  }
+  openModal('modal-turno');
+}
+
+function guardarTurno() {
+  const nombre = document.getElementById('turno-nombre').value.trim();
+  const horaInicio = document.getElementById('turno-inicio').value;
+  const horaFin = document.getElementById('turno-fin').value;
+  if (!nombre) { toast('Escribe el nombre del turno','warn'); return; }
+  if (!horaInicio || !horaFin) { toast('Indica hora de inicio y fin','warn'); return; }
+  const vendedorIds = [...document.querySelectorAll('#turno-vendedores-list input[type=checkbox]:checked')].map(el=>el.value);
+
+  let turno;
+  if (turnoEditId) {
+    const i = db.turnos.findIndex(t=>t.id===turnoEditId);
+    db.turnos[i] = { ...db.turnos[i], nombre, horaInicio, horaFin, vendedorIds };
+    turno = db.turnos[i];
+  } else {
+    turno = { id: uid(), nombre, horaInicio, horaFin, vendedorIds };
+    db.turnos.push(turno);
+  }
+  save();
+  saveAndSyncFast('turnos', { ...turno, vendedorIds: JSON.stringify(turno.vendedorIds||[]) });
+  closeModal('modal-turno');
+  renderTurnos();
+  toast(`Turno "${nombre}" guardado ✓`);
+}
+
+function eliminarTurno(id) {
+  if (!confirm('¿Eliminar este turno?')) return;
+  db.turnos = db.turnos.filter(t=>t.id!==id);
+  save();
+  saveAndDeleteFast('turnos', id);
+  renderTurnos();
+  toast('Turno eliminado', 'warn');
 }
 
 // Cambiar/asignar el NIP de un vendedor ya dado de alta — el dueño ya pasó
@@ -4188,16 +4368,15 @@ async function cancelarCobroMP() {
   }
 }
 
-async function confirmarVenta() {
-  const {sub,desc,total} = getTotal();
-  const metodo  = document.getElementById('cobrar-metodo').value;
-  const recibido= metodo==='efectivo' ? parseFloat(document.getElementById('cobrar-rec').value)||0 : total;
-  const cambio  = recibido - total;
-  if (metodo==='efectivo' && recibido<total) { toast('Pago insuficiente','err'); return; }
-
+// Lógica compartida entre confirmarVenta() (venta en vivo, "ahora") y
+// confirmarVentaAnterior() (una venta que sí pasó pero se captura después,
+// con su fecha/hora y vendedor reales) — para no duplicar el descuento de
+// stock, el registro del movimiento de caja y la sincronización entre las
+// dos. La única diferencia entre ambas es de dónde sale fecha/vendedor.
+function registrarVentaCore({ items, subtotal, descuento, total, recibido, cambio, metodo, vendedor, fecha }) {
   // Descontar stock (solo se guardan/sincronizan los productos realmente afectados)
   const afectados = new Map();
-  ticket.forEach(t=>{
+  items.forEach(t=>{
     const p = db.productos.find(x=>x.barcode===t.barcode);
     if (p) { p.stock -= t.qty; afectados.set(p.id, p); }
   });
@@ -4205,29 +4384,25 @@ async function confirmarVenta() {
   const venta = {
     id: uid(),
     folio:'V-'+String(db.ventas.length+1).padStart(4,'0'),
-    fecha: new Date().toISOString(),
-    items: ticket.map(t=>({...t})),
-    subtotal:sub, descuento:desc, total, recibido, cambio, metodo,
-    vendedor: db.caja.vendedorNombre || '',
+    fecha, items: items.map(t=>({...t})),
+    subtotal, descuento, total, recibido, cambio, metodo, vendedor,
   };
   db.ventas.push(venta);
+  // El movimiento de caja usa la MISMA fecha que la venta — si se le pusiera
+  // la fecha de ahorita, una venta anterior inflaría "Ingresos hoy"/"Saldo en
+  // caja" del turno actual en vez de contar en el turno real al que pertenece.
   const mov = {
-    id:uid(), fecha:new Date().toISOString(),
+    id:uid(), fecha,
     tipo:'ingreso', monto:total, concepto:`Venta ${venta.folio}`
   };
   db.movimientos.push(mov);
 
-  closeModal('modal-cobrar');
-  clearTicket();
   save(); // persiste local al instante, sin esperar la red
 
   renderInv();
   renderPosGrid();
   renderCaja();
   updateBadge();
-
-  // Mostrar ticket e imprimir de inmediato — ya no espera a la sincronización
-  mostrarTicket(venta);
 
   // Sincroniza en segundo plano solo lo que cambió: la venta, el movimiento
   // de caja y los productos con stock afectado. No bloquea la interfaz.
@@ -4243,6 +4418,77 @@ async function confirmarVenta() {
     ]).then(results => setSyncState(results.every(r => r && r.ok) ? 'ok' : 'error'))
       .catch(() => setSyncState('error'));
   }
+  return venta;
+}
+
+async function confirmarVenta() {
+  const {sub,desc,total} = getTotal();
+  const metodo  = document.getElementById('cobrar-metodo').value;
+  const recibido= metodo==='efectivo' ? parseFloat(document.getElementById('cobrar-rec').value)||0 : total;
+  const cambio  = recibido - total;
+  if (metodo==='efectivo' && recibido<total) { toast('Pago insuficiente','err'); return; }
+
+  const venta = registrarVentaCore({
+    items: ticket, subtotal: sub, descuento: desc, total, recibido, cambio, metodo,
+    vendedor: db.caja.vendedorNombre || '', fecha: new Date().toISOString(),
+  });
+
+  closeModal('modal-cobrar');
+  clearTicket();
+  // Mostrar ticket e imprimir de inmediato — ya no espera a la sincronización
+  mostrarTicket(venta);
+}
+
+// ══════════════════════════════════════════════════════════
+//  VENTA ANTERIOR (capturar después una venta que sí pasó pero no se
+//  alcanzó a registrar en su momento — falla del dispositivo, etc.)
+// ══════════════════════════════════════════════════════════
+function abrirVentaAnterior() {
+  if (!ticket.length) { toast('Agrega los productos de esa venta al ticket primero','warn'); return; }
+  const {total} = getTotal();
+  document.getElementById('va-total-num').textContent = mxn(total);
+  const ahora = new Date();
+  document.getElementById('va-fecha').value = ahora.toISOString().slice(0,10);
+  document.getElementById('va-fecha').max   = ahora.toISOString().slice(0,10);
+  document.getElementById('va-hora').value  = ahora.toTimeString().slice(0,5);
+  document.getElementById('va-metodo').value = 'efectivo';
+  document.getElementById('va-rec').value = '';
+  toggleVaEfectivo();
+  const sel = document.getElementById('va-empleado');
+  sel.innerHTML = '<option value="">— Sin especificar —</option>' +
+    (db.vendedores||[]).map(v=>`<option value="${esc(v.nombre)}">${esc(v.nombre)}</option>`).join('');
+  openModal('modal-venta-anterior');
+}
+
+function toggleVaEfectivo() {
+  document.getElementById('va-efectivo-ui').style.display =
+    document.getElementById('va-metodo').value === 'efectivo' ? 'block' : 'none';
+}
+
+async function confirmarVentaAnterior() {
+  const {sub,desc,total} = getTotal();
+  const metodo  = document.getElementById('va-metodo').value;
+  const recibido= metodo==='efectivo' ? parseFloat(document.getElementById('va-rec').value)||0 : total;
+  const cambio  = recibido - total;
+  if (metodo==='efectivo' && recibido<total) { toast('Pago insuficiente','err'); return; }
+
+  const fechaStr = document.getElementById('va-fecha').value;
+  const horaStr  = document.getElementById('va-hora').value;
+  if (!fechaStr || !horaStr) { toast('Indica la fecha y hora reales de la venta','warn'); return; }
+  const fecha = new Date(`${fechaStr}T${horaStr}:00`);
+  if (isNaN(fecha.getTime())) { toast('Fecha/hora inválida','err'); return; }
+  if (fecha.getTime() > Date.now()) { toast('La fecha/hora no puede ser en el futuro','warn'); return; }
+
+  const venta = registrarVentaCore({
+    items: ticket, subtotal: sub, descuento: desc, total, recibido, cambio, metodo,
+    vendedor: document.getElementById('va-empleado').value, fecha: fecha.toISOString(),
+  });
+
+  closeModal('modal-venta-anterior');
+  clearTicket();
+  renderReportes();
+  toast(`Venta anterior registrada ✓ — ${venta.folio}`, 'ok');
+  mostrarTicket(venta);
 }
 
 // ══════════════════════════════════════════════════════════

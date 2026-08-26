@@ -272,6 +272,9 @@ const SHEET_HEADERS = {
   // ventas vs. conteo físico y saber si una merma es real o solo mal
   // registrada como si fuera venta o al revés.
   entradas_inventario: ['id','fecha','productoId','productoNombre','cantidad','stockAntes','stockDespues','usuario'],
+  // Catálogo de turnos de personal (Mañana/Noche, etc.) — informativo, no
+  // tiene que ver con la apertura/cierre real de cada caja.
+  turnos: ['id','nombre','horaInicio','horaFin','vendedorIds'],
 };
 
 function getSheet(name) {
