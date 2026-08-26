@@ -389,6 +389,30 @@ tbody tr:hover td{background:var(--verde-lt)}
 }
 .qa-btn:active{background:var(--verde-lt);border-color:var(--verde)}
 
+/* recargas: grid de compañías */
+.rec-comp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px}
+.rec-comp-btn{
+  display:flex;flex-direction:column;align-items:center;gap:6px;
+  border:1.5px solid var(--border2);border-radius:10px;padding:10px 6px;
+  background:#fff;cursor:pointer;transition:.12s;font:600 11.5px var(--sans);
+  color:var(--txt);text-align:center;line-height:1.25;
+}
+.rec-comp-btn .ico{
+  width:34px;height:34px;border-radius:50%;color:#fff;
+  display:flex;align-items:center;justify-content:center;
+  font:700 13px var(--sans);flex:none;
+}
+.rec-comp-btn:active{transform:scale(.97)}
+.rec-comp-btn.selected{border-color:var(--indigo);background:var(--indigo-lt);color:var(--indigo)}
+
+/* recargas: montos rápidos — botones grandes, cómodos al tacto en cualquier pantalla */
+.rec-montos-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(72px,1fr));gap:8px;margin-bottom:10px}
+.rec-monto-btn{
+  padding:14px 6px;border:1.5px solid var(--border2);border-radius:10px;
+  font:700 16px var(--mono);background:#fff;cursor:pointer;transition:.1s;
+}
+.rec-monto-btn:active{background:var(--verde-lt);border-color:var(--verde);transform:scale(.97)}
+
 /* ══ POS PRODUCT GRID ══ */
 #pos-grid{
   display:grid;
@@ -853,10 +877,11 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
 <div id="view-recargas" class="view">
   <h2 style="font:700 1.1rem var(--sans)">📱 Recargas telefónicas</h2>
 
-  <div class="tiles tiles-3">
+  <div class="tiles">
     <div class="tile indigo"><div class="t-lbl">Recargas hoy</div><div class="t-val" id="rec-n-hoy">0</div></div>
     <div class="tile verde"><div class="t-lbl">Vendido hoy</div><div class="t-val" id="rec-tot-hoy">$0.00</div></div>
-    <div class="tile amber"><div class="t-lbl">Comisión estimada</div><div class="t-val" id="rec-gan-hoy">$0.00</div></div>
+    <div class="tile amber"><div class="t-lbl">Comisión cobrada hoy</div><div class="t-val" id="rec-com-hoy">$0.00</div></div>
+    <div class="tile amber"><div class="t-lbl">Ganancia estimada</div><div class="t-val" id="rec-gan-hoy">$0.00</div></div>
   </div>
 
   <div class="card" id="rec-proveedor-warn" style="display:none;border:2px solid var(--amber);background:var(--amber-lt)">
@@ -872,30 +897,50 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
 
   <div class="card">
     <div class="card-hd">➕ Nueva recarga</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div class="field" style="margin:0">
-        <label>Compañía *</label>
-        <select id="rec-compania">
-          <option value="telcel">Telcel</option>
-          <option value="att">AT&amp;T</option>
-          <option value="movistar">Movistar</option>
-          <option value="unefon">Unefon</option>
-          <option value="bait">Bait</option>
-          <option value="virgin">Virgin Mobile</option>
-          <option value="otra">Otra</option>
-        </select>
-      </div>
-      <div class="field" style="margin:0">
-        <label>Número a 10 dígitos *</label>
-        <input id="rec-telefono" class="barcode-inp" type="tel" inputmode="numeric" maxlength="10" placeholder="55XXXXXXXX" oninput="this.value=this.value.replace(/\D/g,'').slice(0,10)">
-      </div>
+
+    <div id="rec-companias-frecuentes-wrap" style="display:none;margin-bottom:14px">
+      <label style="display:block;font-size:11px;font-weight:600;color:var(--txt2);margin-bottom:6px">⭐ MÁS USADAS</label>
+      <div class="rec-comp-grid" id="rec-companias-frecuentes"></div>
     </div>
-    <div class="field">
-      <label>Monto</label>
-      <div class="quick-amts" id="rec-montos-rapidos"></div>
-      <input type="number" id="rec-monto" min="10" step="1" placeholder="Monto ($)">
+
+    <label style="display:block;font-size:11px;font-weight:600;color:var(--txt2);margin-bottom:6px">1. ELIGE LA COMPAÑÍA *</label>
+    <div class="rec-comp-grid" id="rec-companias-grid"></div>
+    <input type="hidden" id="rec-compania">
+
+    <div id="rec-paso2" style="display:none;margin-top:16px">
+      <div class="field">
+        <label>2. Modalidad de la recarga *</label>
+        <select id="rec-modalidad"></select>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="field" style="margin:0">
+          <label>Número a 10 dígitos *</label>
+          <input id="rec-telefono" class="barcode-inp" type="tel" inputmode="numeric" maxlength="10" placeholder="55XXXXXXXX" oninput="this.value=this.value.replace(/\D/g,'').slice(0,10)">
+        </div>
+        <div class="field" style="margin:0">
+          <label>Confirma el número *</label>
+          <input id="rec-telefono-confirma" class="barcode-inp" type="tel" inputmode="numeric" maxlength="10" placeholder="Repite el número" oninput="this.value=this.value.replace(/\D/g,'').slice(0,10)">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Monto de la recarga</label>
+        <div class="rec-montos-grid" id="rec-montos-rapidos"></div>
+        <input type="number" id="rec-monto" min="10" step="1" placeholder="Otro monto ($)" oninput="actualizarResumenRecarga()">
+      </div>
+
+      <div class="cobrar-total-disp" style="margin-bottom:6px">
+        <div class="lbl">Total a cobrar al cliente</div>
+        <div class="num" id="rec-resumen-total">$0.00</div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--txt2);margin-bottom:14px">
+        <span>Recarga: <b id="rec-resumen-monto">$0.00</b></span>
+        <span>Comisión: <b id="rec-resumen-comision">$0.00</b></span>
+      </div>
+
+      <button class="btn btn-primary btn-full btn-lg" id="btn-recargar" onclick="procesarRecarga()">📲 Cobrar y recargar</button>
     </div>
-    <button class="btn btn-primary btn-full btn-lg" id="btn-recargar" onclick="procesarRecarga()">📲 Recargar</button>
   </div>
 
   <div class="card" style="padding:0;overflow:hidden">
@@ -904,7 +949,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
     </div>
     <div class="tbl-wrap" style="border:none;border-radius:0">
       <table>
-        <thead><tr><th>Fecha</th><th>Folio</th><th>Compañía</th><th>Número</th><th>Monto</th><th>Estatus</th><th></th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Folio</th><th>Compañía</th><th>Modalidad</th><th>Número</th><th>Monto</th><th>Comisión</th><th>Estatus</th><th></th></tr></thead>
         <tbody id="rec-tbody"></tbody>
       </table>
     </div>
@@ -1288,7 +1333,39 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
         <input id="cfg-recarga-comision" type="number" min="0" max="100" step="0.1" placeholder="6">
         <p style="font-size:11px;color:var(--txt2);margin-top:4px">Se usa únicamente para estimar tu ganancia en el tablero de Recargas — no cambia lo que le cobras al cliente ni lo que paga el proveedor.</p>
       </div>
+      <div class="field">
+        <label>Comisión fija por recarga (se le cobra al cliente)</label>
+        <input id="cfg-recarga-comision-fija" type="number" min="0" step="0.5" placeholder="2">
+        <p style="font-size:11px;color:var(--txt2);margin-top:4px">Se suma al monto de la recarga en el cobro y se desglosa en el resumen y en el ticket.</p>
+      </div>
       <button class="btn btn-primary" onclick="guardarConfigRecargas()">💾 Guardar</button>
+
+      <details style="margin-top:14px" open>
+        <summary style="font:600 12px var(--sans);cursor:pointer;color:var(--indigo)">📋 Modalidades y teléfono de soporte por compañía</summary>
+        <div style="font-size:12px;color:var(--txt2);margin:8px 0 12px;line-height:1.6">
+          Cada compañía puede ofrecer varias modalidades de recarga (tiempo aire, paquete de datos, amigo sin límites, etc.) — agrégalas aquí según el catálogo que te dé tu proveedor. El teléfono de soporte es opcional y aparece en el ticket solo si lo llenas.
+        </div>
+        <div class="field">
+          <label>Compañía</label>
+          <select id="cfg-rec-comp-sel" onchange="renderModalidadesConfig()"></select>
+        </div>
+        <div class="field">
+          <label>Teléfono de atención a clientes (opcional)</label>
+          <div style="display:flex;gap:8px">
+            <input id="cfg-rec-comp-tel" placeholder="Ej. 800 123 4567" style="flex:1">
+            <button class="btn btn-primary btn-sm" onclick="guardarTelefonoSoporteRecarga()">Guardar</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>Modalidades de recarga</label>
+          <div style="display:flex;gap:8px">
+            <input id="cfg-rec-modalidad-nueva" placeholder="Nombre de la modalidad" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();agregarModalidadRecarga();}">
+            <button class="btn btn-primary btn-sm" onclick="agregarModalidadRecarga()">+ Agregar</button>
+          </div>
+          <div id="cfg-rec-modalidades-list" style="margin-top:8px"></div>
+        </div>
+      </details>
+
       <details style="margin-top:14px">
         <summary style="font:600 12px var(--sans);cursor:pointer;color:var(--indigo)">📋 Cómo conectar tu proveedor real</summary>
         <div style="font-size:12px;color:var(--txt2);margin-top:8px;line-height:1.8;background:var(--bg);padding:12px;border-radius:8px">
@@ -2115,6 +2192,9 @@ function activarModoPro(lic) {
 
   const comisionEl = document.getElementById('cfg-recarga-comision');
   if (comisionEl) comisionEl.value = cfg.rechargeComision ?? 6;
+  const comisionFijaEl = document.getElementById('cfg-recarga-comision-fija');
+  if (comisionFijaEl) comisionFijaEl.value = cfg.recargaComisionFija ?? 2;
+  renderSelectorCompaniasConfig();
 
   const invPinEl = document.getElementById('cfg-inv-pin');
   if (invPinEl) invPinEl.value = cfg.invPin || '';
@@ -2526,7 +2606,7 @@ let db = { productos:[], ventas:[], movimientos:[], facturas:[], caja:{abierta:f
 // mpDeviceId: a propósito NO se sube nunca a guardarConfigEnSheets() —
 // identifica la terminal física Point pareada con ESTE dispositivo/caja,
 // que puede ser distinta en cada tablet si el negocio tiene varias.
-let cfg = { url:'', syncSecret:'', nombre:'NovaPOS Demo', rfc:'', tel:'', dir:'', giro:'generico', iva:16, logo:'', ticketAncho:'80', rechargeComision:6, invPin:'', ownerPin:'', corteEmail:'', mpDeviceId:'' };
+let cfg = { url:'', syncSecret:'', nombre:'NovaPOS Demo', rfc:'', tel:'', dir:'', giro:'generico', iva:16, logo:'', ticketAncho:'80', rechargeComision:6, invPin:'', ownerPin:'', corteEmail:'', mpDeviceId:'', recargaComisionFija:2, recargaModalidades:{}, recargaTelefonoSoporte:{} };
 let ticket = [];
 let editProdId = null;
 let syncing = false;
@@ -2845,6 +2925,20 @@ async function iniciarApp() {
     ];
     save();
   }
+  // Cada compañía necesita al menos una "modalidad" (tiempo aire, paquete de
+  // datos, etc.) para poder recargar — se siembra un default genérico la
+  // primera vez (o si se agregó una compañía nueva a COMPANIAS_RECARGA) y
+  // el negocio la ajusta luego en Configuración → Recargas telefónicas,
+  // según el catálogo real que le dé su proveedor.
+  if (!cfg.recargaModalidades) cfg.recargaModalidades = {};
+  let modalidadesNuevas = false;
+  Object.keys(COMPANIAS_RECARGA).forEach(k => {
+    if (!cfg.recargaModalidades[k] || !cfg.recargaModalidades[k].length) {
+      cfg.recargaModalidades[k] = ['Tiempo aire'];
+      modalidadesNuevas = true;
+    }
+  });
+  if (modalidadesNuevas) saveCfg();
   updateBadge();
   setSyncState('idle');
   aplicarGiroUI();
@@ -2855,6 +2949,7 @@ async function iniciarApp() {
   renderFacturas();
   renderVentasParaFacturar();
   renderMontosRecarga();
+  renderCompaniasRecarga();
   renderRecargas();
   if (db.caja.abierta) { document.getElementById('caja-closed').style.display='none'; document.getElementById('caja-open').style.display='block'; }
   // Rellenar campos de configuración con los datos guardados
@@ -3348,9 +3443,81 @@ async function guardarConfigSheets() {
 function guardarConfigRecargas() {
   const v = parseFloat((document.getElementById('cfg-recarga-comision')||{}).value);
   cfg.rechargeComision = isNaN(v) ? 0 : Math.min(100, Math.max(0, v));
+  const vFija = parseFloat((document.getElementById('cfg-recarga-comision-fija')||{}).value);
+  cfg.recargaComisionFija = isNaN(vFija) ? 0 : Math.max(0, vFija);
   saveCfg();
   renderRecargas();
+  actualizarResumenRecarga();
   toast('Configuración de recargas guardada ✓');
+}
+
+// ── Modalidades y teléfono de soporte por compañía (Configuración) ─────────
+function renderSelectorCompaniasConfig() {
+  const sel = document.getElementById('cfg-rec-comp-sel');
+  if (!sel) return;
+  const actual = sel.value;
+  sel.innerHTML = Object.keys(COMPANIAS_RECARGA)
+    .map(k => `<option value="${k}">${esc(COMPANIAS_RECARGA[k])}</option>`).join('');
+  sel.value = actual && COMPANIAS_RECARGA[actual] ? actual : Object.keys(COMPANIAS_RECARGA)[0];
+  renderModalidadesConfig();
+}
+
+function renderModalidadesConfig() {
+  const sel = document.getElementById('cfg-rec-comp-sel');
+  const list = document.getElementById('cfg-rec-modalidades-list');
+  const telInput = document.getElementById('cfg-rec-comp-tel');
+  if (!sel || !list) return;
+  const compania = sel.value;
+  if (telInput) telInput.value = (cfg.recargaTelefonoSoporte && cfg.recargaTelefonoSoporte[compania]) || '';
+  const modalidades = (cfg.recargaModalidades && cfg.recargaModalidades[compania]) || [];
+  list.innerHTML = modalidades.map((m,i) => `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--border)">
+      <span style="font-size:12px">${esc(m)}</span>
+      <button class="btn btn-ghost btn-sm" onclick="eliminarModalidadRecarga('${compania}',${i})">✕</button>
+    </div>`).join('') || `<p style="font-size:12px;color:var(--txt2)">Sin modalidades — agrega al menos una para poder recargar esta compañía.</p>`;
+}
+
+function agregarModalidadRecarga() {
+  const sel = document.getElementById('cfg-rec-comp-sel');
+  const input = document.getElementById('cfg-rec-modalidad-nueva');
+  const compania = sel.value;
+  const nombre = input.value.trim();
+  if (!nombre) { toast('Escribe el nombre de la modalidad','warn'); return; }
+  if (!cfg.recargaModalidades) cfg.recargaModalidades = {};
+  if (!cfg.recargaModalidades[compania]) cfg.recargaModalidades[compania] = [];
+  if (cfg.recargaModalidades[compania].some(m => m.toLowerCase() === nombre.toLowerCase())) {
+    toast('Esa modalidad ya existe para esta compañía','warn'); return;
+  }
+  cfg.recargaModalidades[compania].push(nombre);
+  saveCfg();
+  input.value = '';
+  renderModalidadesConfig();
+  // Si esa misma compañía está elegida ahora mismo en la pantalla de
+  // Recargas, refresca su selector de modalidad también.
+  const recSel = document.getElementById('rec-compania');
+  if (recSel && recSel.value === compania) renderModalidadesRecarga(compania);
+  toast('Modalidad agregada ✓');
+}
+
+function eliminarModalidadRecarga(compania, idx) {
+  const modalidades = cfg.recargaModalidades && cfg.recargaModalidades[compania];
+  if (!modalidades) return;
+  if (modalidades.length <= 1) { toast('Debe quedar al menos una modalidad por compañía','warn'); return; }
+  modalidades.splice(idx, 1);
+  saveCfg();
+  renderModalidadesConfig();
+  const recSel = document.getElementById('rec-compania');
+  if (recSel && recSel.value === compania) renderModalidadesRecarga(compania);
+}
+
+function guardarTelefonoSoporteRecarga() {
+  const sel = document.getElementById('cfg-rec-comp-sel');
+  const input = document.getElementById('cfg-rec-comp-tel');
+  const compania = sel.value;
+  if (!cfg.recargaTelefonoSoporte) cfg.recargaTelefonoSoporte = {};
+  cfg.recargaTelefonoSoporte[compania] = input.value.trim();
+  saveCfg();
+  toast(`Teléfono de soporte de ${COMPANIAS_RECARGA[compania]||compania} guardado ✓`);
 }
 
 function guardarConfigInvPin() {
@@ -5277,20 +5444,116 @@ function renderCaja() {
 //  ninguna compañía — este módulo nunca finge un éxito que no ocurrió.
 // ══════════════════════════════════════════════════════════
 const COMPANIAS_RECARGA = {
-  telcel:'Telcel', att:'AT&T', movistar:'Movistar', unefon:'Unefon',
-  bait:'Bait', virgin:'Virgin Mobile', otra:'Otra',
+  telcel:'Telcel', movistar:'Movistar', att:'AT&T (Iusacell - Nextel)', unefon:'Unefon',
+  bait:'BAIT', mimovil:'Mimovil', virgin:'Virgin Mobile', oui:'OUI',
+  diri:'DIRI Móvil', cfeteit:'CFE Teit', redicoppel:'RediCoppel', pillofon:'PilloFon',
+  yobi:'YOBI Telecom', telmovil:'Telmovil', wimotelecom:'WimoTelecom', newww:'Newww Telefonía',
+  valortelecom:'Valor Telecom', abib:'ABIB', weex:'Weex', compartfon:'ComparTFon',
+  flashmobile:'FlashMobile', freedompop:'FreedomPop', dalefon:'DaleFon', sorianamovil:'Soriana Móvil',
+  bigcel:'Bigcel', axiosmobile:'Axios Mobile', rincel:'Rincel', vasanta:'Vasanta Comunicaciones',
+  megamovil:'Megamóvil', giit:'Giit', bienestar:'Internet para el Bienestar', ultracel:'ULTRACEL',
+  frcmobile:'FRC Mobile', beneleit:'BENELEIT', jrmovil:'JR Móvil',
+  otra:'Otra',
 };
-const MONTOS_RECARGA_SUGERIDOS = [20,30,50,100,150,200,300,500];
+const MONTOS_RECARGA_SUGERIDOS = [10,20,30,50,80,100,150,200,300,500];
+// Cuántas compañías mostrar en la fila de acceso rápido "Más usadas",
+// calculada en vivo a partir del historial (ver companiasFrecuentes()).
+const RECARGA_FRECUENTES_N = 6;
 
 function renderMontosRecarga() {
   const wrap = document.getElementById('rec-montos-rapidos');
   if (!wrap) return;
   wrap.innerHTML = MONTOS_RECARGA_SUGERIDOS.map(a =>
-    `<button type="button" class="qa-btn" onclick="document.getElementById('rec-monto').value=${a}">${mxn(a)}</button>`
+    `<button type="button" class="rec-monto-btn" onclick="document.getElementById('rec-monto').value=${a};actualizarResumenRecarga()">${mxn(a)}</button>`
   ).join('');
 }
 
+// Color determinístico por compañía (mismo key siempre da el mismo color) —
+// hace de "ícono" sin depender de ningún logo externo, para que la app siga
+// siendo un solo archivo autocontenido, sin internet.
+function colorCompania(key) {
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) % 360;
+  return `hsl(${h},58%,45%)`;
+}
+function inicialesCompania(nombre) {
+  return nombre.replace(/[^A-Za-zÀ-ÿ ]/g,'').trim().split(/\s+/).slice(0,2).map(w=>w[0]).join('').toUpperCase() || '?';
+}
+
+function botonCompaniaHTML(key, seleccionada) {
+  const nombre = COMPANIAS_RECARGA[key] || key;
+  const sel = key === seleccionada ? ' selected' : '';
+  return `<button type="button" class="rec-comp-btn${sel}" onclick="seleccionarCompaniaRecarga('${key}')">
+    <span class="ico" style="background:${colorCompania(key)}">${esc(inicialesCompania(nombre))}</span>
+    <span>${esc(nombre)}</span>
+  </button>`;
+}
+
+// Las compañías que más se han recargado (histórico completo, solo
+// completadas) para tenerlas a un toque, sin tener que buscarlas en la
+// cuadrícula completa cada vez.
+function companiasFrecuentes(n = RECARGA_FRECUENTES_N) {
+  const conteo = {};
+  (db.recargas||[]).forEach(r => {
+    if (r.estatus === 'completada') conteo[r.compania] = (conteo[r.compania]||0) + 1;
+  });
+  return Object.keys(conteo)
+    .sort((a,b) => conteo[b]-conteo[a])
+    .slice(0, n);
+}
+
+function renderCompaniasRecarga() {
+  const gridTodas = document.getElementById('rec-companias-grid');
+  const gridFrec  = document.getElementById('rec-companias-frecuentes');
+  const wrapFrec  = document.getElementById('rec-companias-frecuentes-wrap');
+  if (!gridTodas) return;
+  const seleccionada = document.getElementById('rec-compania').value;
+
+  gridTodas.innerHTML = Object.keys(COMPANIAS_RECARGA)
+    .map(k => botonCompaniaHTML(k, seleccionada)).join('');
+
+  const frecuentes = companiasFrecuentes();
+  if (gridFrec) gridFrec.innerHTML = frecuentes.map(k => botonCompaniaHTML(k, seleccionada)).join('');
+  if (wrapFrec) wrapFrec.style.display = frecuentes.length ? 'block' : 'none';
+}
+
+function seleccionarCompaniaRecarga(key) {
+  document.getElementById('rec-compania').value = key;
+  renderCompaniasRecarga();
+  renderModalidadesRecarga(key);
+  document.getElementById('rec-paso2').style.display = 'block';
+  document.getElementById('rec-telefono').value = '';
+  document.getElementById('rec-telefono-confirma').value = '';
+  document.getElementById('rec-monto').value = '';
+  actualizarResumenRecarga();
+  setTimeout(() => document.getElementById('rec-telefono').focus(), 50);
+}
+
+function renderModalidadesRecarga(key) {
+  const sel = document.getElementById('rec-modalidad');
+  if (!sel) return;
+  const modalidades = (cfg.recargaModalidades && cfg.recargaModalidades[key]) || ['Tiempo aire'];
+  sel.innerHTML = modalidades.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
+}
+
+function actualizarResumenRecarga() {
+  const monto = parseFloat(document.getElementById('rec-monto').value) || 0;
+  const comisionFija = cfg.recargaComisionFija ?? 2;
+  const total = monto + comisionFija;
+  document.getElementById('rec-resumen-monto').textContent = mxn(monto);
+  document.getElementById('rec-resumen-comision').textContent = mxn(comisionFija);
+  document.getElementById('rec-resumen-total').textContent = mxn(total);
+}
+
 function getFolioRecarga() { return 'R-'+String(db.recargas.length+1).padStart(4,'0'); }
+
+// Solo se ven los últimos 4 dígitos en el ticket que se lleva el cliente —
+// el historial dentro de la app sí conserva el número completo, porque el
+// negocio lo necesita para verificar o reintentar una recarga fallida.
+function maskTelefono(tel) {
+  const s = String(tel||'');
+  return s.length > 4 ? '*'.repeat(s.length-4) + s.slice(-4) : s;
+}
 
 async function procesarRecarga() {
   // Defensa adicional a que el nav ya esconda el botón: Recargas es exclusivo
@@ -5298,26 +5561,34 @@ async function procesarRecarga() {
   if (!tieneRecargas()) { toast('Recargas es exclusivo de NovaPOS Versión 2. Contacta a tu distribuidor para actualizar.','err'); return; }
 
   const compania = document.getElementById('rec-compania').value;
+  const modalidad = document.getElementById('rec-modalidad').value;
   const telefono = document.getElementById('rec-telefono').value.trim();
+  const telefonoConfirma = document.getElementById('rec-telefono-confirma').value.trim();
   const monto    = parseFloat(document.getElementById('rec-monto').value);
   const btn = document.getElementById('btn-recargar');
 
+  if (!compania) { toast('Elige la compañía','warn'); return; }
   if (!/^\d{10}$/.test(telefono)) { toast('El número debe tener 10 dígitos','err'); return; }
+  if (telefono !== telefonoConfirma) { toast('Los dos números no coinciden — revisa e intenta de nuevo','err'); return; }
   if (!monto || monto <= 0) { toast('Ingresa un monto válido','err'); return; }
   if (!db.caja.abierta) { toast('Abre la caja primero','warn'); return; }
+
+  const comisionFija = cfg.recargaComisionFija ?? 2;
+  const total = monto + comisionFija;
 
   btn.disabled = true;
   btn.textContent = 'Procesando…';
   const resultado = await enviarRecargaProveedor({ compania, telefono, monto });
   btn.disabled = false;
-  btn.textContent = '📲 Recargar';
+  btn.textContent = '📲 Cobrar y recargar';
 
   const comisionPct = cfg.rechargeComision || 0;
   const rec = {
     id: uid(),
     folio: getFolioRecarga(),
     fecha: new Date().toISOString(),
-    compania, telefono, monto,
+    compania, modalidad, telefono, monto,
+    comisionFija, total,
     comisionPct,
     gananciaEstimada: monto * comisionPct / 100,
     estatus: resultado.ok ? 'completada' : 'error',
@@ -5333,9 +5604,14 @@ async function procesarRecarga() {
     // saldo del cierre (ver calcularResumenPeriodo()) y hacia los
     // "Ingresos hoy" en vivo (ver renderCaja()), solo que se suman
     // directamente desde db.recargas en vez de pasar por movimientos.
+    // La compañía y modalidad se dejan elegidas para la siguiente recarga
+    // (es común hacer varias seguidas de la misma compañía).
     document.getElementById('rec-telefono').value = '';
+    document.getElementById('rec-telefono-confirma').value = '';
     document.getElementById('rec-monto').value = '';
+    actualizarResumenRecarga();
     toast(`Recarga ${rec.folio} completada ✓`);
+    imprimirRecarga(rec.id);
   } else {
     toast(`No se completó la recarga: ${resultado.mensaje}`, 'err');
   }
@@ -5369,15 +5645,18 @@ function renderRecargas() {
   const warn = document.getElementById('rec-proveedor-warn');
   if (warn) warn.style.display = cfg.url ? 'none' : 'block';
 
+  renderCompaniasRecarga();
+
   const h = hoy();
   const hoyRecargas = db.recargas.filter(r => r.fecha.startsWith(h) && r.estatus==='completada');
   document.getElementById('rec-n-hoy').textContent = hoyRecargas.length;
   document.getElementById('rec-tot-hoy').textContent = mxn(hoyRecargas.reduce((s,r)=>s+r.monto,0));
+  document.getElementById('rec-com-hoy').textContent = mxn(hoyRecargas.reduce((s,r)=>s+(r.comisionFija||0),0));
   document.getElementById('rec-gan-hoy').textContent = mxn(hoyRecargas.reduce((s,r)=>s+r.gananciaEstimada,0));
 
   const tbody = document.getElementById('rec-tbody');
   if (!db.recargas.length) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--txt2);padding:20px">Sin recargas todavía</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--txt2);padding:20px">Sin recargas todavía</td></tr>`;
     return;
   }
   tbody.innerHTML = [...db.recargas].reverse().map(r => {
@@ -5387,8 +5666,10 @@ function renderRecargas() {
       <td style="font-size:11px;white-space:nowrap">${new Date(r.fecha).toLocaleString('es-MX',{dateStyle:'short',timeStyle:'short'})}</td>
       <td><span class="badge badge-indigo">${esc(r.folio)}</span></td>
       <td>${esc(COMPANIAS_RECARGA[r.compania]||r.compania)}</td>
+      <td style="font-size:11px">${esc(r.modalidad||'—')}</td>
       <td style="font-family:var(--mono)">${esc(r.telefono)}</td>
       <td style="font-family:var(--mono)">${mxn(r.monto)}</td>
+      <td style="font-family:var(--mono)">${mxn(r.comisionFija||0)}</td>
       <td><span class="badge ${badge}" title="${esc(r.mensaje)}">${estatusTxt}</span></td>
       <td>${r.estatus==='completada' ? `<button class="btn btn-ghost btn-sm" onclick="imprimirRecarga('${r.id}')">🖨</button>` : ''}</td>
     </tr>`;
@@ -5402,6 +5683,10 @@ function buildRecargaHTML(r) {
   const fecha = new Date(r.fecha);
   const fStr = fecha.toLocaleDateString('es-MX',{day:'2-digit',month:'2-digit',year:'numeric'});
   const hStr = fecha.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'});
+  const nombreCia = COMPANIAS_RECARGA[r.compania] || r.compania;
+  const comision = r.comisionFija ?? 0;
+  const total = r.total ?? (r.monto + comision);
+  const telSoporte = (cfg.recargaTelefonoSoporte && cfg.recargaTelefonoSoporte[r.compania]) || '';
   return `
     <div style="text-align:center;font-weight:700;font-size:15px;letter-spacing:1px;margin-bottom:2px">${negocio.toUpperCase()}</div>
     ${dir?`<div style="text-align:center;font-size:11px">${dir}</div>`:''}
@@ -5410,13 +5695,22 @@ function buildRecargaHTML(r) {
     <div style="text-align:center;font-weight:700;font-size:13px">COMPROBANTE DE RECARGA</div>
     <div style="display:flex;justify-content:space-between;font-size:11px"><span>Folio: <b>${esc(r.folio)}</b></span><span>${fStr} ${hStr}</span></div>
     <div style="border-top:1px dashed #999;margin:6px 0"></div>
-    <div style="font-size:12px"><b>Compañía:</b> ${esc(COMPANIAS_RECARGA[r.compania]||r.compania)}</div>
-    <div style="font-size:12px"><b>Número:</b> ${esc(r.telefono)}</div>
+    <div style="font-size:12px"><b>Compañía:</b> ${esc(nombreCia)}</div>
+    ${r.modalidad?`<div style="font-size:12px"><b>Modalidad:</b> ${esc(r.modalidad)}</div>`:''}
+    <div style="font-size:12px"><b>Número:</b> ${esc(maskTelefono(r.telefono))}</div>
     ${r.folioProveedor?`<div style="font-size:11px;color:#555"><b>Folio proveedor:</b> ${esc(r.folioProveedor)}</div>`:''}
     <div style="border-top:1px dashed #999;margin:6px 0"></div>
-    <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:700"><span>MONTO</span><span>${mxn(r.monto)}</span></div>
+    <div style="display:flex;justify-content:space-between;font-size:12px"><span>Recarga</span><span>${mxn(r.monto)}</span></div>
+    <div style="display:flex;justify-content:space-between;font-size:12px"><span>Comisión</span><span>${mxn(comision)}</span></div>
+    <div style="border-top:1px dashed #999;margin:6px 0"></div>
+    <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:700"><span>TOTAL</span><span>${mxn(total)}</span></div>
     <div style="border-top:1px dashed #999;margin:8px 0"></div>
-    <div style="text-align:center;font-size:11px;color:#555">¡Gracias por su compra!</div>`;
+    <div style="text-align:center;font-size:11px;color:#555">¡Gracias por su compra!</div>
+    <div style="border-top:1px dashed #999;margin:8px 0"></div>
+    <div style="font-size:10px;color:#555;line-height:1.5">
+      Si no recibiste tu recarga, comunícate a atención a clientes de ${esc(nombreCia)}${telSoporte ? ` al <b>${esc(telSoporte)}</b>` : ''}
+      y ten a la mano este ticket (folio${r.folioProveedor?' y folio del proveedor':''}) para que puedan ayudarte.
+    </div>`;
 }
 
 function imprimirRecarga(id) {
