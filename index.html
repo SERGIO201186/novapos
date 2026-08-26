@@ -693,9 +693,6 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
       <button class="btn btn-primary btn-full btn-lg" id="btn-cobrar" onclick="openCobrar()">
         💳 Cobrar
       </button>
-      <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="abrirVentaAnterior()">
-        🕐 Venta anterior (otra fecha/turno)
-      </button>
     </div>
   </div>
 
@@ -1333,6 +1330,12 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
     </div>
 
     <div class="card">
+      <div class="card-hd">🕐 Ventas anteriores</div>
+      <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Para capturar después una venta que sí se realizó pero no se alcanzó a registrar en su momento (falla del dispositivo, etc.), con su fecha/hora real para que cuente en el turno correcto. Al estar en Configuración, queda fuera del alcance de los empleados si le pusiste NIP del dueño arriba.</p>
+      <button class="btn btn-primary" onclick="abrirVentaAnterior()">+ Registrar venta anterior</button>
+    </div>
+
+    <div class="card">
       <div class="card-hd">📋 Resumen de turno</div>
       <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Cada vez que se cierra la caja, se abre automáticamente para imprimir un resumen del turno (ventas, ingresos/egresos, saldo). Si pones un correo aquí, además se lo envía por email — déjalo vacío para que solo se imprima, como hasta ahora.</p>
       <div class="field">
@@ -1609,6 +1612,12 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
   <div class="modal">
     <h3>🕐 Registrar venta anterior</h3>
     <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Para una venta que sí se realizó pero no se alcanzó a capturar en su momento. Se registra con la fecha/hora real para que cuente en el turno correcto.</p>
+    <div class="field">
+      <label>Código de barras</label>
+      <input id="va-bc" class="barcode-inp" placeholder="Escanea o escribe y presiona Enter…" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();vaAgregarProducto();}">
+    </div>
+    <div id="va-ticket-rows" style="margin-bottom:6px"></div>
+    <p id="va-ticket-empty" style="font-size:12px;color:var(--txt2);text-align:center;padding:10px 0">Agrega los productos de esa venta arriba.</p>
     <div class="cobrar-total-disp">
       <div class="lbl">Total</div>
       <div class="num" id="va-total-num">$0.00</div>
@@ -4442,12 +4451,19 @@ async function confirmarVenta() {
 // ══════════════════════════════════════════════════════════
 //  VENTA ANTERIOR (capturar después una venta que sí pasó pero no se
 //  alcanzó a registrar en su momento — falla del dispositivo, etc.)
+//  Vive en Configuración (protegida por el NIP del dueño si está
+//  configurado), fuera del alcance de los empleados. Tiene su propio
+//  carrito (vaTicket) — NO comparte el "ticket" del mostrador, porque un
+//  cajero puede tener una venta a medias en curso mientras el dueño
+//  captura esto por separado.
 // ══════════════════════════════════════════════════════════
+let vaTicket = [];
+
 function abrirVentaAnterior() {
-  if (!ticket.length) { toast('Agrega los productos de esa venta al ticket primero','warn'); return; }
-  const {total} = getTotal();
-  document.getElementById('va-total-num').textContent = mxn(total);
+  vaTicket = [];
+  renderVaTicket();
   const ahora = new Date();
+  document.getElementById('va-bc').value = '';
   document.getElementById('va-fecha').value = ahora.toISOString().slice(0,10);
   document.getElementById('va-fecha').max   = ahora.toISOString().slice(0,10);
   document.getElementById('va-hora').value  = ahora.toTimeString().slice(0,5);
@@ -4458,6 +4474,47 @@ function abrirVentaAnterior() {
   sel.innerHTML = '<option value="">— Sin especificar —</option>' +
     (db.vendedores||[]).map(v=>`<option value="${esc(v.nombre)}">${esc(v.nombre)}</option>`).join('');
   openModal('modal-venta-anterior');
+  setTimeout(() => document.getElementById('va-bc').focus(), 50);
+}
+
+function vaAgregarProducto() {
+  const bcInput = document.getElementById('va-bc');
+  const bc = bcInput.value.trim();
+  if (!bc) return;
+  const p = db.productos.find(x=>x.barcode===bc);
+  if (!p) { toast(`Código "${bc}" no encontrado`,'err'); return; }
+  const ex = vaTicket.find(t=>t.barcode===bc);
+  if (ex) ex.qty++;
+  else vaTicket.push({barcode:bc, nombre:p.nombre, precio:p.precio, costo:p.costo||0, qty:1, unidad:p.unidad||'pza'});
+  bcInput.value = '';
+  renderVaTicket();
+  bcInput.focus();
+}
+
+function vaChangeQty(i, v) {
+  vaTicket[i].qty = Math.max(1, parseInt(v)||1);
+  renderVaTicket();
+}
+function vaRemoveItem(i) { vaTicket.splice(i,1); renderVaTicket(); }
+function vaGetTotal() { return vaTicket.reduce((s,t)=>s+t.precio*t.qty,0); }
+
+function renderVaTicket() {
+  const rows = document.getElementById('va-ticket-rows');
+  const empty = document.getElementById('va-ticket-empty');
+  if (!vaTicket.length) {
+    rows.innerHTML = '';
+    empty.style.display = 'block';
+  } else {
+    empty.style.display = 'none';
+    rows.innerHTML = vaTicket.map((t,i) => `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding:6px 0;border-top:1px solid var(--border)">
+        <span style="font-size:12px;flex:1">${esc(t.nombre)} <small style="color:var(--txt2)">(${mxn(t.precio)})</small></span>
+        <input type="number" value="${t.qty}" min="1" style="width:56px" onchange="vaChangeQty(${i},this.value)">
+        <span style="font-family:var(--mono);font-size:12px;white-space:nowrap">${mxn(t.precio*t.qty)}</span>
+        <button class="btn btn-ghost btn-sm" onclick="vaRemoveItem(${i})">✕</button>
+      </div>`).join('');
+  }
+  document.getElementById('va-total-num').textContent = mxn(vaGetTotal());
 }
 
 function toggleVaEfectivo() {
@@ -4466,7 +4523,8 @@ function toggleVaEfectivo() {
 }
 
 async function confirmarVentaAnterior() {
-  const {sub,desc,total} = getTotal();
+  if (!vaTicket.length) { toast('Agrega los productos de esa venta','warn'); return; }
+  const total   = vaGetTotal();
   const metodo  = document.getElementById('va-metodo').value;
   const recibido= metodo==='efectivo' ? parseFloat(document.getElementById('va-rec').value)||0 : total;
   const cambio  = recibido - total;
@@ -4480,12 +4538,12 @@ async function confirmarVentaAnterior() {
   if (fecha.getTime() > Date.now()) { toast('La fecha/hora no puede ser en el futuro','warn'); return; }
 
   const venta = registrarVentaCore({
-    items: ticket, subtotal: sub, descuento: desc, total, recibido, cambio, metodo,
+    items: vaTicket, subtotal: total, descuento: 0, total, recibido, cambio, metodo,
     vendedor: document.getElementById('va-empleado').value, fecha: fecha.toISOString(),
   });
 
   closeModal('modal-venta-anterior');
-  clearTicket();
+  vaTicket = [];
   renderReportes();
   toast(`Venta anterior registrada ✓ — ${venta.folio}`, 'ok');
   mostrarTicket(venta);
