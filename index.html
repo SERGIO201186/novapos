@@ -1428,11 +1428,15 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
     <div style="display:flex;gap:8px;margin-bottom:14px">
       <div class="cambio-box" style="flex:1;margin:0">
         <div class="lbl">Venta del día</div>
-        <div class="num" id="cierre-venta-num" style="font-size:16px">$0.00</div>
+        <div class="num" id="cierre-venta-num" style="font-size:14px">$0.00</div>
       </div>
-      <div class="cambio-box" style="flex:1;margin:0">
-        <div class="lbl">Fondo (se queda en caja)</div>
-        <div class="num" id="cierre-fondo-num" style="font-size:16px">$0.00</div>
+      <div class="cambio-box" style="flex:1;margin:0" title="Fondo (se queda en caja)">
+        <div class="lbl">Fondo</div>
+        <div class="num" id="cierre-fondo-num" style="font-size:14px">$0.00</div>
+      </div>
+      <div class="cambio-box" id="cierre-recargas-box" style="flex:1;margin:0">
+        <div class="lbl">Recargas</div>
+        <div class="num" id="cierre-recargas-num" style="font-size:14px">$0.00</div>
       </div>
     </div>
     <div class="cobrar-total-disp" style="margin-bottom:14px">
@@ -2126,7 +2130,7 @@ function activarModoPro(lic) {
   // vista con una licencia que dejó de calificar (ej. se le cambió el tier),
   // se le regresa a Ventas.
   const puedeRecargas = tieneRecargas();
-  document.querySelectorAll('#dnav-recargas, #bnav-recargas, #cfg-card-recargas').forEach(el => {
+  document.querySelectorAll('#dnav-recargas, #bnav-recargas, #cfg-card-recargas, #cierre-recargas-box').forEach(el => {
     el.style.display = puedeRecargas ? '' : 'none';
   });
   if (!puedeRecargas && document.getElementById('view-recargas')?.classList.contains('active')) {
@@ -5088,7 +5092,13 @@ async function abrirCaja() {
 // realmente abierta en este dispositivo.
 function calcularResumenPeriodo(apertura, cierreISO, fondo) {
   const movT = db.movimientos.filter(m => m.fecha >= apertura && m.fecha <= cierreISO);
-  const ing  = movT.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+m.monto,0);
+  // Las ventas siguen generando su propio movimiento de "ingreso" (ver
+  // registrarVentaCore()), pero las recargas ya NO — viven solo en su
+  // propia pestaña (db.recargas) para no duplicarse en la lista de
+  // Movimientos de caja. Por eso aquí solo hay que restar ventas para
+  // aislar los ingresos manuales; las recargas se suman aparte, directo
+  // desde db.recargas, un poco más abajo.
+  const movIngresos = movT.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+m.monto,0);
   const egr  = movT.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+m.monto,0);
 
   const ventasT = db.ventas.filter(v => v.fecha >= apertura && v.fecha <= cierreISO);
@@ -5099,10 +5109,8 @@ function calcularResumenPeriodo(apertura, cierreISO, fondo) {
   const ventasTotal = ventasT.reduce((s,v)=>s+v.total,0);
   const recargasTotal = recargasT.reduce((s,r)=>s+r.monto,0);
   const efectivo = sumaMetodo('efectivo');
-  // ingresos = ventas + recargas + movimientos manuales (cada venta/recarga
-  // se registra como un "ingreso" con el mismo monto), así que restando
-  // ventas y recargas sobran exactamente los ingresos manuales.
-  const otrosIngresos = Math.max(0, ing - ventasTotal - recargasTotal);
+  const otrosIngresos = Math.max(0, movIngresos - ventasTotal);
+  const ingresos = ventasTotal + recargasTotal + otrosIngresos;
   // A diferencia de saldoFinal (que sigue el criterio de siempre: fondo +
   // TODOS los ingresos, incluyendo tarjeta/transferencia), esto es
   // específicamente el efectivo físico que debería haber en el cajón —
@@ -5111,7 +5119,7 @@ function calcularResumenPeriodo(apertura, cierreISO, fondo) {
 
   return {
     apertura, cierre: cierreISO,
-    fondo, ingresos: ing, egresos: egr, saldoFinal: fondo+ing-egr,
+    fondo, ingresos, egresos: egr, saldoFinal: fondo+ingresos-egr,
     ventasCount: ventasT.length, ventasTotal,
     efectivo, tarjeta: sumaMetodo('tarjeta'), transferencia: sumaMetodo('transferencia'),
     recargasCount: recargasT.length, recargasTotal,
@@ -5134,6 +5142,7 @@ function cerrarCaja() {
   cierreEsperadoActual = preview.efectivoEsperado;
   document.getElementById('cierre-venta-num').textContent = mxn(preview.ventasTotal);
   document.getElementById('cierre-fondo-num').textContent = mxn(preview.fondo);
+  document.getElementById('cierre-recargas-num').textContent = mxn(preview.recargasTotal);
   document.getElementById('cierre-esperado-num').textContent = mxn(preview.efectivoEsperado);
   const contadoEl = document.getElementById('cierre-contado');
   contadoEl.value = '';
@@ -5211,13 +5220,20 @@ async function registrarMov() {
 function renderCaja() {
   const h = hoy();
   const movH = db.movimientos.filter(m=>m.fecha.startsWith(h));
-  const ing  = movH.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+m.monto,0);
+  const movIngresos = movH.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+m.monto,0);
   const egr  = movH.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+m.monto,0);
+  // Las recargas ya no generan movimiento (ver procesarRecarga()), así que
+  // se suman aparte, directo desde db.recargas, para que sigan reflejadas
+  // en vivo en "Ingresos hoy"/"Saldo en caja" sin duplicarse en la lista
+  // de Movimientos.
+  const recargasHoy = (db.recargas||[]).filter(r=>r.fecha.startsWith(h) && r.estatus==='completada').reduce((s,r)=>s+r.monto,0);
+  const ing  = movIngresos + recargasHoy;
   const vtasH= db.ventas.filter(v=>v.fecha.startsWith(h)).length;
   // A propósito NO incluye el fondo — es el movimiento del día (ventas +
-  // ingresos manuales - egresos), para que arranque en $0.00 al abrir la
-  // caja en vez de mostrar de entrada el fondo como si fuera venta. El
-  // fondo se ve aparte, en su propio campo, y en el resumen de cierre.
+  // recargas + ingresos manuales - egresos), para que arranque en $0.00 al
+  // abrir la caja en vez de mostrar de entrada el fondo como si fuera
+  // venta. El fondo se ve aparte, en su propio campo, y en el resumen de
+  // cierre.
   const saldo= ing-egr;
 
   document.getElementById('caja-saldo-big').textContent = mxn(saldo);
@@ -5310,12 +5326,12 @@ async function procesarRecarga() {
   db.recargas.push(rec);
 
   if (resultado.ok) {
-    // Solo se registra como ingreso de caja cuando el proveedor confirmó la
-    // recarga — si falla, se asume que aún no se le cobró al cliente.
-    db.movimientos.push({
-      id: uid(), fecha: new Date().toISOString(), tipo:'ingreso', monto,
-      concepto: `Recarga ${COMPANIAS_RECARGA[compania]||compania} ${telefono} (${rec.folio})`,
-    });
+    // Ya NO se registra un movimiento de caja aparte — las recargas viven
+    // solo en su propia pestaña (db.recargas), sin duplicarse en la lista
+    // de Movimientos. Aun así sí cuentan hacia el efectivo esperado y el
+    // saldo del cierre (ver calcularResumenPeriodo()) y hacia los
+    // "Ingresos hoy" en vivo (ver renderCaja()), solo que se suman
+    // directamente desde db.recargas en vez de pasar por movimientos.
     document.getElementById('rec-telefono').value = '';
     document.getElementById('rec-monto').value = '';
     toast(`Recarga ${rec.folio} completada ✓`);
