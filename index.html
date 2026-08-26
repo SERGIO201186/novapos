@@ -1610,25 +1610,42 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
      de ahorita. No requiere caja abierta (puede ser de un turno ya cerrado). -->
 <div class="modal-bg" id="modal-venta-anterior">
   <div class="modal">
-    <h3>🕐 Registrar venta anterior</h3>
-    <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Para una venta que sí se realizó pero no se alcanzó a capturar en su momento. Se registra con la fecha/hora real para que cuente en el turno correcto.</p>
-    <div class="field">
-      <label>Código de barras</label>
-      <input id="va-bc" class="barcode-inp" placeholder="Escanea o escribe y presiona Enter…" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();vaAgregarProducto();}">
-    </div>
-    <div id="va-ticket-rows" style="margin-bottom:6px"></div>
-    <p id="va-ticket-empty" style="font-size:12px;color:var(--txt2);text-align:center;padding:10px 0">Agrega los productos de esa venta arriba.</p>
-    <div class="cobrar-total-disp">
-      <div class="lbl">Total</div>
-      <div class="num" id="va-total-num">$0.00</div>
+    <h3>🕐 Registrar turno anterior</h3>
+    <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Para reconstruir un turno que sí se trabajó pero no se pudo capturar en su momento (falla del dispositivo, etc.). Captura las ventas que faltaron y al final cierra el turno — genera un corte con ticket y código QR igual que un cierre de caja normal.</p>
+
+    <div class="card-hd" style="margin-bottom:8px">1. Datos del turno</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="field" style="margin:0"><label>Fecha *</label><input type="date" id="va-fecha" onchange="vaActualizarResumenCierre()"></div>
+      <div class="field" style="margin:0">
+        <label>Turno *</label>
+        <select id="va-turno" onchange="vaActualizarResumenCierre()"><option value="">— Elige —</option></select>
+      </div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div class="field" style="margin:0"><label>Fecha real *</label><input type="date" id="va-fecha"></div>
-      <div class="field" style="margin:0"><label>Hora real *</label><input type="time" id="va-hora"></div>
+      <div class="field" style="margin:0">
+        <label>Empleado responsable</label>
+        <select id="va-empleado"><option value="">— Sin especificar —</option></select>
+      </div>
+      <div class="field" style="margin:0"><label>Fondo inicial ($)</label><input type="number" id="va-fondo" min="0" value="300" oninput="vaActualizarResumenCierre()"></div>
+    </div>
+
+    <div class="card-hd" style="margin:14px 0 8px">2. Agregar una venta a este turno</div>
+    <div class="field">
+      <label>Hora de esta venta</label>
+      <input type="time" id="va-hora">
     </div>
     <div class="field">
-      <label>Empleado que la realizó</label>
-      <select id="va-empleado"><option value="">— Sin especificar —</option></select>
+      <label>Código de barras</label>
+      <div style="display:flex;gap:8px">
+        <input id="va-bc" class="barcode-inp" placeholder="Escanea o escribe…" autocomplete="off" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();vaAgregarProducto();}">
+        <button class="btn btn-primary" onclick="vaAgregarProducto()">+ Agregar</button>
+      </div>
+    </div>
+    <div id="va-ticket-rows" style="margin-bottom:6px"></div>
+    <p id="va-ticket-empty" style="font-size:12px;color:var(--txt2);text-align:center;padding:10px 0">Agrega los productos de esta venta arriba.</p>
+    <div class="cobrar-total-disp">
+      <div class="lbl">Total de esta venta</div>
+      <div class="num" id="va-total-num">$0.00</div>
     </div>
     <div class="field">
       <label>Método de pago</label>
@@ -1642,9 +1659,29 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
       <label>Con cuánto pagó ($)</label>
       <input type="number" id="va-rec" min="0" step=".01" placeholder="0.00">
     </div>
+    <button class="btn btn-ghost btn-full" onclick="vaAgregarVentaAlTurno()">➕ Agregar esta venta al turno</button>
+
+    <div class="card-hd" style="margin:14px 0 8px">3. Ventas ya agregadas a este turno</div>
+    <div id="va-ventas-turno-list" style="margin-bottom:10px"></div>
+
+    <div class="card-hd" style="margin:14px 0 8px">4. Cerrar el turno</div>
+    <p style="font-size:12px;color:var(--txt2);margin-bottom:8px">Cuenta el efectivo que en realidad se entregó/depositó de ese turno.</p>
+    <div class="cobrar-total-disp" style="margin-bottom:10px">
+      <div class="lbl">Efectivo esperado</div>
+      <div class="num" id="va-esperado-num">$0.00</div>
+    </div>
+    <div class="field">
+      <label>Efectivo contado</label>
+      <input type="number" id="va-contado" min="0" step=".01" placeholder="0.00" oninput="vaCalcDiferencia()">
+    </div>
+    <div class="cambio-box" id="va-diferencia-box">
+      <div class="lbl">Diferencia</div>
+      <div class="num" id="va-diferencia-num">$0.00</div>
+    </div>
+
     <div class="modal-botones-fijos">
-      <button class="btn btn-ghost" style="flex:1" onclick="closeModal('modal-venta-anterior')">Cancelar</button>
-      <button class="btn btn-primary btn-lg" style="flex:2" onclick="confirmarVentaAnterior()">✅ Registrar venta</button>
+      <button class="btn btn-ghost" style="flex:1" onclick="closeModal('modal-venta-anterior')">Cerrar ventana</button>
+      <button class="btn btn-primary btn-lg" style="flex:2" onclick="vaCerrarTurno()">🔒 Cerrar turno y generar ticket</button>
     </div>
   </div>
 </div>
@@ -4378,7 +4415,7 @@ async function cancelarCobroMP() {
 }
 
 // Lógica compartida entre confirmarVenta() (venta en vivo, "ahora") y
-// confirmarVentaAnterior() (una venta que sí pasó pero se captura después,
+// vaAgregarVentaAlTurno() (una venta que sí pasó pero se captura después,
 // con su fecha/hora y vendedor reales) — para no duplicar el descuento de
 // stock, el registro del movimiento de caja y la sincronización entre las
 // dos. La única diferencia entre ambas es de dónde sale fecha/vendedor.
@@ -4470,11 +4507,88 @@ function abrirVentaAnterior() {
   document.getElementById('va-metodo').value = 'efectivo';
   document.getElementById('va-rec').value = '';
   toggleVaEfectivo();
+  document.getElementById('va-fondo').value = 300;
+  document.getElementById('va-contado').value = '';
+  document.getElementById('va-diferencia-num').textContent = mxn(0);
+  document.getElementById('va-diferencia-box').className = 'cambio-box';
+
   const sel = document.getElementById('va-empleado');
   sel.innerHTML = '<option value="">— Sin especificar —</option>' +
     (db.vendedores||[]).map(v=>`<option value="${esc(v.nombre)}">${esc(v.nombre)}</option>`).join('');
+
+  const selTurno = document.getElementById('va-turno');
+  selTurno.innerHTML = '<option value="">— Elige —</option>' +
+    (db.turnos||[]).map(t=>`<option value="${t.id}">${esc(t.nombre)} (${t.horaInicio}–${t.horaFin})</option>`).join('');
+
   openModal('modal-venta-anterior');
+  vaActualizarResumenCierre();
   setTimeout(() => document.getElementById('va-bc').focus(), 50);
+}
+
+// Ventana de fecha/hora real [apertura, cierre) del turno elegido en el
+// punto 1 — si horaFin <= horaInicio se asume que el turno cruza la
+// medianoche (p.ej. Noche 20:00–08:00) y el cierre cae al día siguiente.
+function vaTurnoWindow() {
+  const fechaStr = document.getElementById('va-fecha').value;
+  const turnoId  = document.getElementById('va-turno').value;
+  const turno = (db.turnos||[]).find(t=>t.id===turnoId);
+  if (!fechaStr || !turno) return null;
+  const apertura = new Date(`${fechaStr}T${turno.horaInicio}:00`);
+  let cierre = new Date(`${fechaStr}T${turno.horaFin}:00`);
+  if (cierre.getTime() <= apertura.getTime()) cierre = new Date(cierre.getTime() + 86400000);
+  return { apertura, cierre, turno };
+}
+
+// Combina la hora de una venta puntual con la fecha correcta del turno —
+// si el turno cruza medianoche y la hora cae antes de horaInicio, se asume
+// que es del día siguiente.
+function vaHoraVentaADate(win, horaStr) {
+  const [hh, mm] = horaStr.split(':').map(Number);
+  let d = new Date(win.apertura);
+  d.setHours(hh, mm, 0, 0);
+  if (d.getTime() < win.apertura.getTime()) d = new Date(d.getTime() + 86400000);
+  return d;
+}
+
+let vaEsperadoActual = 0;
+
+function vaActualizarResumenCierre() {
+  const win = vaTurnoWindow();
+  const listEl = document.getElementById('va-ventas-turno-list');
+  if (!win) {
+    vaEsperadoActual = 0;
+    document.getElementById('va-esperado-num').textContent = mxn(0);
+    listEl.innerHTML = '<p style="font-size:12px;color:var(--txt2);text-align:center;padding:6px 0">Elige la fecha y el turno del punto 1.</p>';
+    vaCalcDiferencia();
+    return;
+  }
+  const fondo = parseFloat(document.getElementById('va-fondo').value) || 0;
+  const resumen = calcularResumenPeriodo(win.apertura.toISOString(), win.cierre.toISOString(), fondo);
+  vaEsperadoActual = resumen.efectivoEsperado;
+  document.getElementById('va-esperado-num').textContent = mxn(resumen.efectivoEsperado);
+  vaCalcDiferencia();
+
+  const ventasT = db.ventas
+    .filter(v => v.fecha >= win.apertura.toISOString() && v.fecha <= win.cierre.toISOString())
+    .sort((a,b) => a.fecha < b.fecha ? -1 : 1);
+  if (!ventasT.length) {
+    listEl.innerHTML = '<p style="font-size:12px;color:var(--txt2);text-align:center;padding:6px 0">Aún no se ha agregado ninguna venta a este turno.</p>';
+  } else {
+    listEl.innerHTML = ventasT.map(v => `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding:6px 0;border-top:1px solid var(--border)">
+        <span style="font-size:12px;flex:1">${esc(v.folio)} <small style="color:var(--txt2)">${new Date(v.fecha).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})} · ${esc(v.vendedor||'—')}</small></span>
+        <span style="font-family:var(--mono);font-size:12px;white-space:nowrap">${mxn(v.total)}</span>
+      </div>`).join('');
+  }
+}
+
+function vaCalcDiferencia() {
+  const contado = parseFloat(document.getElementById('va-contado').value) || 0;
+  const dif = vaEsperadoActual - contado; // positivo = falta, negativo = sobra
+  const box = document.getElementById('va-diferencia-box');
+  document.getElementById('va-diferencia-num').textContent =
+    mxn(Math.abs(dif)) + (dif > 0 ? ' (falta)' : dif < 0 ? ' (sobra)' : '');
+  box.className = 'cambio-box' + (dif > 0 ? ' neg' : '');
 }
 
 function vaAgregarProducto() {
@@ -4522,31 +4636,72 @@ function toggleVaEfectivo() {
     document.getElementById('va-metodo').value === 'efectivo' ? 'block' : 'none';
 }
 
-async function confirmarVentaAnterior() {
-  if (!vaTicket.length) { toast('Agrega los productos de esa venta','warn'); return; }
+async function vaAgregarVentaAlTurno() {
+  if (!vaTicket.length) { toast('Agrega los productos de esta venta','warn'); return; }
+  const win = vaTurnoWindow();
+  if (!win) { toast('Elige la fecha y el turno del punto 1','warn'); return; }
+  const horaStr = document.getElementById('va-hora').value;
+  if (!horaStr) { toast('Indica la hora de esta venta','warn'); return; }
+  const fecha = vaHoraVentaADate(win, horaStr);
+  if (fecha.getTime() < win.apertura.getTime() || fecha.getTime() > win.cierre.getTime()) {
+    toast('Esa hora no cae dentro del turno elegido','err'); return;
+  }
+  if (fecha.getTime() > Date.now()) { toast('La fecha/hora no puede ser en el futuro','warn'); return; }
+
   const total   = vaGetTotal();
   const metodo  = document.getElementById('va-metodo').value;
   const recibido= metodo==='efectivo' ? parseFloat(document.getElementById('va-rec').value)||0 : total;
   const cambio  = recibido - total;
   if (metodo==='efectivo' && recibido<total) { toast('Pago insuficiente','err'); return; }
 
-  const fechaStr = document.getElementById('va-fecha').value;
-  const horaStr  = document.getElementById('va-hora').value;
-  if (!fechaStr || !horaStr) { toast('Indica la fecha y hora reales de la venta','warn'); return; }
-  const fecha = new Date(`${fechaStr}T${horaStr}:00`);
-  if (isNaN(fecha.getTime())) { toast('Fecha/hora inválida','err'); return; }
-  if (fecha.getTime() > Date.now()) { toast('La fecha/hora no puede ser en el futuro','warn'); return; }
-
   const venta = registrarVentaCore({
     items: vaTicket, subtotal: total, descuento: 0, total, recibido, cambio, metodo,
     vendedor: document.getElementById('va-empleado').value, fecha: fecha.toISOString(),
   });
 
+  vaTicket = [];
+  renderVaTicket();
+  document.getElementById('va-bc').value = '';
+  document.getElementById('va-rec').value = '';
+  vaActualizarResumenCierre();
+  toast(`Venta agregada al turno ✓ — ${venta.folio}`, 'ok');
+  document.getElementById('va-bc').focus();
+}
+
+async function vaCerrarTurno() {
+  const win = vaTurnoWindow();
+  if (!win) { toast('Elige la fecha y el turno del punto 1','warn'); return; }
+  const fondo = parseFloat(document.getElementById('va-fondo').value) || 0;
+  const contado = parseFloat(document.getElementById('va-contado').value);
+  if (isNaN(contado) || contado < 0) { toast('Ingresa el efectivo contado del turno','warn'); return; }
+
+  const resumen = calcularResumenPeriodo(win.apertura.toISOString(), win.cierre.toISOString(), fondo);
+  if (!resumen.ventasCount) { toast('Agrega al menos una venta antes de cerrar el turno','warn'); return; }
+
+  const empleadoNombre = document.getElementById('va-empleado').value;
+  const vendedorInfo = db.vendedores.find(v => v.nombre === empleadoNombre);
+  const fechaCompacta = resumen.apertura.slice(0,10).replace(/-/g,'');
+  // Mismo esquema de folio que un cierre de caja normal — nunca decrece.
+  const folio = `TCK-${fechaCompacta}-${String(db.cortes.length+1).padStart(4,'0')}`;
+  const faltante = Math.round((resumen.efectivoEsperado - contado) * 100) / 100;
+
+  const corte = {
+    ...resumen,
+    vendedor: empleadoNombre, vendedorId: (vendedorInfo && vendedorInfo.id) || '',
+    folio,
+    codigoEmpleado: (vendedorInfo && vendedorInfo.codigoEmpleado) || '',
+    efectivoContado: contado,
+    faltante,
+  };
+  db.cortes.push(corte);
   closeModal('modal-venta-anterior');
+  await saveAndSync();
   vaTicket = [];
   renderReportes();
-  toast(`Venta anterior registrada ✓ — ${venta.folio}`, 'ok');
-  mostrarTicket(venta);
+  toast('Turno anterior cerrado. Corte generado ✓');
+
+  imprimirCorte(corte);
+  if (cfg.corteEmail && cfg.url) enviarCorteCorreo(corte);
 }
 
 // ══════════════════════════════════════════════════════════
@@ -4925,8 +5080,13 @@ async function abrirCaja() {
 // medianoche o que comparte el día con otro turno antes calculaba mal) y
 // arma el desglose que necesitan tanto la vista previa al abrir el modal de
 // cierre como el corte final que se guarda.
-function calcularResumenTurno(cierreISO) {
-  const apertura = db.caja.fechaApertura;
+// Extraído de lo que antes era calcularResumenTurno(), parametrizado en
+// apertura/cierre/fondo en vez de leerlos siempre de db.caja — así lo puede
+// usar tanto el cierre de caja en vivo como el cierre de un turno anterior
+// (Configuración → Venta anterior), que reconstruye un turno ya pasado con
+// su propia ventana de fechas y su propio fondo, sin que haya una caja
+// realmente abierta en este dispositivo.
+function calcularResumenPeriodo(apertura, cierreISO, fondo) {
   const movT = db.movimientos.filter(m => m.fecha >= apertura && m.fecha <= cierreISO);
   const ing  = movT.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+m.monto,0);
   const egr  = movT.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+m.monto,0);
@@ -4947,16 +5107,22 @@ function calcularResumenTurno(cierreISO) {
   // TODOS los ingresos, incluyendo tarjeta/transferencia), esto es
   // específicamente el efectivo físico que debería haber en el cajón —
   // tarjeta/transferencia no mueven billetes, así que no cuentan aquí.
-  const efectivoEsperado = db.caja.fondo + efectivo + recargasTotal + otrosIngresos - egr;
+  const efectivoEsperado = fondo + efectivo + recargasTotal + otrosIngresos - egr;
 
   return {
     apertura, cierre: cierreISO,
-    fondo: db.caja.fondo, ingresos: ing, egresos: egr, saldoFinal: db.caja.fondo+ing-egr,
-    vendedor: db.caja.vendedorNombre || '', vendedorId: db.caja.vendedorId || '',
+    fondo, ingresos: ing, egresos: egr, saldoFinal: fondo+ing-egr,
     ventasCount: ventasT.length, ventasTotal,
     efectivo, tarjeta: sumaMetodo('tarjeta'), transferencia: sumaMetodo('transferencia'),
     recargasCount: recargasT.length, recargasTotal,
     efectivoEsperado,
+  };
+}
+
+function calcularResumenTurno(cierreISO) {
+  return {
+    ...calcularResumenPeriodo(db.caja.fechaApertura, cierreISO, db.caja.fondo),
+    vendedor: db.caja.vendedorNombre || '', vendedorId: db.caja.vendedorId || '',
   };
 }
 
