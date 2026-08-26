@@ -337,7 +337,24 @@ tbody tr:hover td{background:var(--verde-lt)}
   padding:24px;width:100%;max-width:500px;
   box-shadow:var(--sh-lg);
   max-height:90vh;overflow-y:auto;
+  /* "dvh" (dynamic viewport height) sí resta el espacio que ocupa el
+     teclado en pantalla en tablets/celulares — "vh" no, ahí se calcula
+     sobre la pantalla completa como si el teclado no estuviera, y el
+     modal terminaba más alto que el espacio realmente visible. Los
+     navegadores que no soportan "dvh" simplemente ignoran esta línea y
+     se quedan con el "vh" de arriba. */
+  max-height:90dvh;
   -webkit-overflow-scrolling:touch;
+}
+/* Los botones de acción de un modal largo (Cobrar venta, Nuevo/editar
+   producto) se quedan pegados abajo del área visible mientras se hace
+   scroll, en vez de quedar más abajo del contenido — así nunca hay que
+   moverse ni buscarlos para poder confirmar. */
+.modal-botones-fijos{
+  position:sticky;bottom:0;background:#fff;
+  margin-top:14px;padding-top:10px;
+  display:flex;gap:8px;
+  box-shadow:0 -8px 12px -8px rgba(15,23,42,.12);
 }
 .modal h3{font-size:1.05rem;font-weight:700;margin-bottom:16px}
 
@@ -1562,12 +1579,12 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
         <div class="lbl">Terminal Mercado Pago</div>
         <div class="num" id="mp-cobro-status-num" style="font-size:14px">Creando cobro…</div>
       </div>
-      <div style="display:flex;gap:8px;margin-top:10px">
+      <div class="modal-botones-fijos">
         <button class="btn btn-ghost" style="flex:1" onclick="verificarCobroMPManual()">🔄 Verificar de nuevo</button>
         <button class="btn btn-ghost" style="flex:1" onclick="cancelarCobroMP()">✖ Cancelar cobro</button>
       </div>
     </div>
-    <div id="cobrar-botones-normales" style="display:flex;gap:8px;margin-top:14px">
+    <div id="cobrar-botones-normales" class="modal-botones-fijos">
       <button class="btn btn-ghost" style="flex:1" onclick="closeModal('modal-cobrar')">Cancelar</button>
       <button class="btn btn-primary btn-lg" style="flex:2" onclick="iniciarCobro()">✅ Confirmar</button>
     </div>
