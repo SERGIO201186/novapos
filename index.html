@@ -939,6 +939,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
         <span>Comisión: <b id="rec-resumen-comision">$0.00</b></span>
       </div>
 
+      <p id="rec-modo-hint" style="display:none;font-size:11px;color:var(--txt2);margin-bottom:8px">✅ Modo manual: ya cobraste y recargaste por fuera (ej. en la terminal de pago) — esto solo guarda el registro y genera el ticket.</p>
       <button class="btn btn-primary btn-full btn-lg" id="btn-recargar" onclick="procesarRecarga()">📲 Cobrar y recargar</button>
     </div>
   </div>
@@ -1324,6 +1325,16 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
     <div class="card" id="cfg-card-recargas" style="display:none">
       <div class="card-hd">📱 Recargas telefónicas</div>
       <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">NovaPOS no se conecta directo a Telcel/AT&T/Movistar: eso lo hace un mayorista con webservice propio (ej. Seycel, Taecel, Sivetel). Para no exponer las credenciales de ese proveedor en este archivo HTML/JS —visible para cualquiera con el código fuente—, la recarga se manda al mismo Apps Script de arriba (usa la misma URL y clave secreta) y es ahí, del lado del servidor, donde se agrega la llamada real al proveedor.</p>
+
+      <div class="field">
+        <label>¿Cómo se hace la recarga real?</label>
+        <select id="cfg-recarga-modo" onchange="guardarModoRecarga()">
+          <option value="auto">Automático — un proveedor conectado (Taecel, Seycel, etc.) hace la recarga</option>
+          <option value="manual">Manual — ya se cobra y recarga por fuera (ej. función de recargas de tu terminal de pago); aquí solo se registra</option>
+        </select>
+        <p style="font-size:11px;color:var(--txt2);margin-top:4px">En modo manual, NovaPOS no intenta llamar a ningún proveedor: guarda el detalle (compañía, número, modalidad, comisión) y genera el ticket de inmediato, para negocios que ya cobran y recargan directo en su terminal de pago.</p>
+      </div>
+
       <div id="rec-cfg-status" class="sheets-status">
         <span id="rec-cfg-dot">⚪</span>
         <span id="rec-cfg-txt">Sin conexión a Google Sheets — las recargas solo quedarán en el historial local</span>
@@ -2194,6 +2205,8 @@ function activarModoPro(lic) {
   if (comisionEl) comisionEl.value = cfg.rechargeComision ?? 6;
   const comisionFijaEl = document.getElementById('cfg-recarga-comision-fija');
   if (comisionFijaEl) comisionFijaEl.value = cfg.recargaComisionFija ?? 2;
+  const modoEl = document.getElementById('cfg-recarga-modo');
+  if (modoEl) modoEl.value = cfg.recargaModoManual ? 'manual' : 'auto';
   renderSelectorCompaniasConfig();
 
   const invPinEl = document.getElementById('cfg-inv-pin');
@@ -2606,7 +2619,7 @@ let db = { productos:[], ventas:[], movimientos:[], facturas:[], caja:{abierta:f
 // mpDeviceId: a propósito NO se sube nunca a guardarConfigEnSheets() —
 // identifica la terminal física Point pareada con ESTE dispositivo/caja,
 // que puede ser distinta en cada tablet si el negocio tiene varias.
-let cfg = { url:'', syncSecret:'', nombre:'NovaPOS Demo', rfc:'', tel:'', dir:'', giro:'generico', iva:16, logo:'', ticketAncho:'80', rechargeComision:6, invPin:'', ownerPin:'', corteEmail:'', mpDeviceId:'', recargaComisionFija:2, recargaModalidades:{}, recargaTelefonoSoporte:{} };
+let cfg = { url:'', syncSecret:'', nombre:'NovaPOS Demo', rfc:'', tel:'', dir:'', giro:'generico', iva:16, logo:'', ticketAncho:'80', rechargeComision:6, invPin:'', ownerPin:'', corteEmail:'', mpDeviceId:'', recargaComisionFija:2, recargaModalidades:{}, recargaTelefonoSoporte:{}, recargaModoManual:false };
 let ticket = [];
 let editProdId = null;
 let syncing = false;
@@ -3438,6 +3451,15 @@ async function guardarConfigSheets() {
     const ok = await cargarDeSheets();
     if (ok) refrescarVistasTrasDescarga();
   }
+}
+
+function guardarModoRecarga() {
+  cfg.recargaModoManual = document.getElementById('cfg-recarga-modo').value === 'manual';
+  saveCfg();
+  renderRecargas();
+  toast(cfg.recargaModoManual
+    ? 'Modo manual activado — las recargas se registran directo, sin llamar a ningún proveedor ✓'
+    : 'Modo automático activado — las recargas se mandan a tu proveedor conectado ✓');
 }
 
 function guardarConfigRecargas() {
@@ -5578,9 +5600,14 @@ async function procesarRecarga() {
 
   btn.disabled = true;
   btn.textContent = 'Procesando…';
-  const resultado = await enviarRecargaProveedor({ compania, telefono, monto });
+  // Modo manual: el cobro y la recarga real ya pasaron por fuera de NovaPOS
+  // (ej. la función de recargas de la propia terminal de pago) — aquí solo
+  // se guarda el detalle y se genera el ticket, sin llamar a ningún proveedor.
+  const resultado = cfg.recargaModoManual
+    ? { ok: true, mensaje: 'Registrada manualmente' }
+    : await enviarRecargaProveedor({ compania, telefono, monto });
   btn.disabled = false;
-  btn.textContent = '📲 Cobrar y recargar';
+  btn.textContent = cfg.recargaModoManual ? '📲 Registrar y generar ticket' : '📲 Cobrar y recargar';
 
   const comisionPct = cfg.rechargeComision || 0;
   const rec = {
@@ -5641,11 +5668,19 @@ async function enviarRecargaProveedor({ compania, telefono, monto }) {
   }
 }
 
+function actualizarBotonRecarga() {
+  const btn = document.getElementById('btn-recargar');
+  const hint = document.getElementById('rec-modo-hint');
+  if (btn) btn.textContent = cfg.recargaModoManual ? '📲 Registrar y generar ticket' : '📲 Cobrar y recargar';
+  if (hint) hint.style.display = cfg.recargaModoManual ? 'block' : 'none';
+}
+
 function renderRecargas() {
   const warn = document.getElementById('rec-proveedor-warn');
-  if (warn) warn.style.display = cfg.url ? 'none' : 'block';
+  if (warn) warn.style.display = (cfg.url || cfg.recargaModoManual) ? 'none' : 'block';
 
   renderCompaniasRecarga();
+  actualizarBotonRecarga();
 
   const h = hoy();
   const hoyRecargas = db.recargas.filter(r => r.fecha.startsWith(h) && r.estatus==='completada');
