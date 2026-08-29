@@ -279,7 +279,7 @@ const SHEET_HEADERS = {
   ventas:      ['id','folio','fecha','items','subtotal','descuento','total','recibido','cambio','metodo','vendedor'],
   movimientos: ['id','fecha','tipo','monto','concepto'],
   facturas:    ['id','folio','ventaId','fecha','clienteNombre','clienteRFC','clienteEmail','clienteDir','usoCFDI','metodoPago','formaPago','subtotal','iva','total','estatus','cfdiUUID'],
-  recargas:    ['id','folio','fecha','compania','telefono','monto','comisionPct','gananciaEstimada','estatus','folioProveedor','mensaje'],
+  recargas:    ['id','folio','fecha','compania','modalidad','telefono','monto','comisionPct','gananciaEstimada','estatus','folioProveedor','metodoPago','mensaje'],
   cortes:      ['apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','folio','codigoEmpleado','efectivoEsperado','efectivoContado','faltante'],
   vendedores:  ['id','nombre','codigoEmpleado'],
   config:      ['key','value'],
