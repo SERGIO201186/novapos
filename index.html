@@ -270,7 +270,12 @@ input[readonly]{background:var(--bg);color:var(--txt2)}
 .btn-lg{padding:14px 24px;font-size:15px;border-radius:10px}
 
 /* ══ TABLE ══ */
-.tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:var(--r-sm);border:1px solid var(--border)}
+/* touch-action:pan-x — evita que este contenedor (que solo hace scroll
+   horizontal) se quede con el gesto táctil vertical; sin esto, en algunas
+   tablets/WebViews arrastrar el dedo sobre una tabla ancha (Inventario,
+   Recargas) bloqueaba el scroll de toda la pantalla en vez de dejarlo
+   pasar hacia el contenedor .view que sí debe moverse verticalmente. */
+.tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;touch-action:pan-x;border-radius:var(--r-sm);border:1px solid var(--border)}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{
   background:var(--bg);color:var(--txt2);
