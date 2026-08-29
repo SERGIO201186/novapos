@@ -949,6 +949,21 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
         <span>Comisión: <b id="rec-resumen-comision">$0.00</b></span>
       </div>
 
+      <div class="field">
+        <label>Método de pago</label>
+        <select id="rec-metodo-pago">
+          <option value="efectivo">Efectivo</option>
+          <option value="tarjeta">Tarjeta (terminal)</option>
+          <option value="transferencia">Transferencia</option>
+        </select>
+      </div>
+
+      <div class="field" id="rec-folio-terminal-wrap" style="display:none">
+        <label>Folio de la terminal (opcional)</label>
+        <input id="rec-folio-terminal" placeholder="El folio que imprimió la terminal al hacer la recarga">
+        <p style="font-size:10.5px;color:var(--txt2);margin-top:4px">No se puede jalar automático de la terminal — Mercado Pago no comparte ese dato con ninguna app. Anótalo aquí una sola vez y de ahí en adelante queda impreso en el ticket y guardado en el historial.</p>
+      </div>
+
       <p id="rec-modo-hint" style="display:none;font-size:11px;color:var(--txt2);margin-bottom:8px">✅ Modo manual: ya cobraste y recargaste por fuera (ej. en la terminal de pago) — esto solo guarda el registro y genera el ticket.</p>
       <button class="btn btn-primary btn-full btn-lg" id="btn-recargar" onclick="procesarRecarga()">📲 Cobrar y recargar</button>
     </div>
@@ -960,7 +975,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
     </div>
     <div class="tbl-wrap" style="border:none;border-radius:0">
       <table>
-        <thead><tr><th>Fecha</th><th>Folio</th><th>Compañía</th><th>Modalidad</th><th>Número</th><th>Monto</th><th>Comisión</th><th>Estatus</th><th></th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Folio</th><th>Compañía</th><th>Modalidad</th><th>Número</th><th>Monto</th><th>Comisión</th><th>Pago</th><th>Folio terminal</th><th>Estatus</th><th></th></tr></thead>
         <tbody id="rec-tbody"></tbody>
       </table>
     </div>
@@ -2562,7 +2577,7 @@ const SHEET_HEADERS = {
   ventas:      ['id','folio','fecha','items','subtotal','descuento','total','recibido','cambio','metodo','vendedor'],
   movimientos: ['id','fecha','tipo','monto','concepto'],
   facturas:    ['id','folio','ventaId','fecha','clienteNombre','clienteRFC','clienteEmail','clienteDir','usoCFDI','metodoPago','formaPago','subtotal','iva','total','estatus','cfdiUUID'],
-  recargas:    ['id','folio','fecha','compania','telefono','monto','comisionPct','gananciaEstimada','estatus','folioProveedor','mensaje'],
+  recargas:    ['id','folio','fecha','compania','modalidad','telefono','monto','comisionPct','gananciaEstimada','estatus','folioProveedor','metodoPago','mensaje'],
   cortes:      ['apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','folio','codigoEmpleado','efectivoEsperado','efectivoContado','faltante'],
   vendedores:  ['id','nombre','codigoEmpleado'],
   config:      ['key','value'],
@@ -2996,6 +3011,17 @@ async function iniciarApp() {
     }
   });
   if (modalidadesNuevas) saveCfg();
+  // Igual que las modalidades: solo se siembra el teléfono de soporte
+  // público si esa compañía todavía no tiene ninguno guardado.
+  if (!cfg.recargaTelefonoSoporte) cfg.recargaTelefonoSoporte = {};
+  let telefonosNuevos = false;
+  Object.keys(RECARGA_TELEFONO_SOPORTE_DEFAULT).forEach(k => {
+    if (!cfg.recargaTelefonoSoporte[k]) {
+      cfg.recargaTelefonoSoporte[k] = RECARGA_TELEFONO_SOPORTE_DEFAULT[k];
+      telefonosNuevos = true;
+    }
+  });
+  if (telefonosNuevos) saveCfg();
   updateBadge();
   setSyncState('idle');
   aplicarGiroUI();
@@ -5548,6 +5574,7 @@ const COMPANIAS_RECARGA = {
   otra:'Otra',
 };
 const MONTOS_RECARGA_SUGERIDOS = [10,20,30,50,80,100,150,200,300,500];
+const METODO_PAGO_RECARGA_LABEL = { efectivo:'Efectivo', tarjeta:'Tarjeta (terminal)', transferencia:'Transferencia' };
 
 // Compañías que se muestran de entrada en la pestaña "Principales" — el
 // resto vive en "Otros" (buscable). Cada una trae su catálogo real de
@@ -5609,6 +5636,21 @@ const RECARGA_PAQUETES_DEFAULT = {
     { nombre: '12 GB por 30 días', monto: 200 },
     { nombre: 'GB ilimitados por 30 días', monto: 230 },
   ],
+};
+
+// Números públicos de atención a clientes de las 5 compañías principales,
+// para que el ticket de recarga los muestre sin que el negocio tenga que
+// buscarlos y capturarlos a mano en Configuración. Se siembran solo si esa
+// compañía todavía no tiene ninguno guardado (nunca se pisa uno que el
+// negocio ya haya corregido o personalizado). Como van impresos en un ticket
+// de dinero real, conviene que el negocio los verifique una vez contra la
+// fuente oficial de cada compañía.
+const RECARGA_TELEFONO_SOPORTE_DEFAULT = {
+  telcel: '*264',
+  movistar: '*611',
+  unefon: '*611',
+  att: '*611',
+  bait: '*282',
 };
 
 function renderMontosRecarga() {
@@ -5753,6 +5795,8 @@ async function procesarRecarga() {
   const telefono = document.getElementById('rec-telefono').value.trim();
   const telefonoConfirma = document.getElementById('rec-telefono-confirma').value.trim();
   const monto    = parseFloat(document.getElementById('rec-monto').value);
+  const metodoPago = document.getElementById('rec-metodo-pago').value || 'efectivo';
+  const folioTerminal = (document.getElementById('rec-folio-terminal')||{}).value?.trim() || '';
   const btn = document.getElementById('btn-recargar');
 
   if (!compania) { toast('Elige la compañía','warn'); return; }
@@ -5785,7 +5829,11 @@ async function procesarRecarga() {
     comisionPct,
     gananciaEstimada: monto * comisionPct / 100,
     estatus: resultado.ok ? 'completada' : 'error',
-    folioProveedor: resultado.folioProveedor || '',
+    // En modo automático, folioProveedor lo regresa el proveedor conectado;
+    // en modo manual no hay forma de jalarlo solo (Mercado Pago no lo
+    // expone), así que se usa el que el cajero haya anotado a mano.
+    folioProveedor: resultado.folioProveedor || folioTerminal,
+    metodoPago,
     mensaje: resultado.mensaje || '',
   };
   db.recargas.push(rec);
@@ -5802,6 +5850,7 @@ async function procesarRecarga() {
     document.getElementById('rec-telefono').value = '';
     document.getElementById('rec-telefono-confirma').value = '';
     document.getElementById('rec-monto').value = '';
+    if (document.getElementById('rec-folio-terminal')) document.getElementById('rec-folio-terminal').value = '';
     actualizarResumenRecarga();
     toast(`Recarga ${rec.folio} completada ✓`);
     imprimirRecarga(rec.id);
@@ -5837,8 +5886,12 @@ async function enviarRecargaProveedor({ compania, telefono, monto }) {
 function actualizarBotonRecarga() {
   const btn = document.getElementById('btn-recargar');
   const hint = document.getElementById('rec-modo-hint');
+  const folioWrap = document.getElementById('rec-folio-terminal-wrap');
   if (btn) btn.textContent = cfg.recargaModoManual ? '📲 Registrar y generar ticket' : '📲 Cobrar y recargar';
   if (hint) hint.style.display = cfg.recargaModoManual ? 'block' : 'none';
+  // El folio de la terminal solo aplica en modo manual — en modo automático
+  // el proveedor conectado ya regresa su propio folioProveedor.
+  if (folioWrap) folioWrap.style.display = cfg.recargaModoManual ? 'block' : 'none';
 }
 
 function renderRecargas() {
@@ -5857,7 +5910,7 @@ function renderRecargas() {
 
   const tbody = document.getElementById('rec-tbody');
   if (!db.recargas.length) {
-    tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--txt2);padding:20px">Sin recargas todavía</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;color:var(--txt2);padding:20px">Sin recargas todavía</td></tr>`;
     return;
   }
   tbody.innerHTML = [...db.recargas].reverse().map(r => {
@@ -5871,6 +5924,8 @@ function renderRecargas() {
       <td style="font-family:var(--mono)">${esc(r.telefono)}</td>
       <td style="font-family:var(--mono)">${mxn(r.monto)}</td>
       <td style="font-family:var(--mono)">${mxn(r.comisionFija||0)}</td>
+      <td style="font-size:11px">${esc(METODO_PAGO_RECARGA_LABEL[r.metodoPago]||r.metodoPago||'—')}</td>
+      <td style="font-size:11px;font-family:var(--mono)">${esc(r.folioProveedor||'—')}</td>
       <td><span class="badge ${badge}" title="${esc(r.mensaje)}">${estatusTxt}</span></td>
       <td>${r.estatus==='completada' ? `<button class="btn btn-ghost btn-sm" onclick="imprimirRecarga('${r.id}')">🖨</button>` : ''}</td>
     </tr>`;
@@ -5899,6 +5954,7 @@ function buildRecargaHTML(r) {
     <div style="font-size:12px"><b>Compañía:</b> ${esc(nombreCia)}</div>
     ${r.modalidad?`<div style="font-size:12px"><b>Modalidad:</b> ${esc(r.modalidad)}</div>`:''}
     <div style="font-size:12px"><b>Número:</b> ${esc(maskTelefono(r.telefono))}</div>
+    <div style="font-size:12px"><b>Método de pago:</b> ${esc(METODO_PAGO_RECARGA_LABEL[r.metodoPago]||r.metodoPago||'—')}</div>
     ${r.folioProveedor?`<div style="font-size:11px;color:#555"><b>Folio proveedor:</b> ${esc(r.folioProveedor)}</div>`:''}
     <div style="border-top:1px dashed #999;margin:6px 0"></div>
     <div style="display:flex;justify-content:space-between;font-size:12px"><span>Recarga</span><span>${mxn(r.monto)}</span></div>
