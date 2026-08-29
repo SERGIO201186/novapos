@@ -898,19 +898,25 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
   <div class="card">
     <div class="card-hd">➕ Nueva recarga</div>
 
-    <div id="rec-companias-frecuentes-wrap" style="display:none;margin-bottom:14px">
-      <label style="display:block;font-size:11px;font-weight:600;color:var(--txt2);margin-bottom:6px">⭐ MÁS USADAS</label>
-      <div class="rec-comp-grid" id="rec-companias-frecuentes"></div>
+    <label style="display:block;font-size:11px;font-weight:600;color:var(--txt2);margin-bottom:6px">1. ELIGE LA COMPAÑÍA *</label>
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <button type="button" class="btn btn-primary btn-sm" id="rec-tab-principales" onclick="mostrarTabCompanias('principales')">Principales</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="rec-tab-otros" onclick="mostrarTabCompanias('otros')">Otros</button>
     </div>
 
-    <label style="display:block;font-size:11px;font-weight:600;color:var(--txt2);margin-bottom:6px">1. ELIGE LA COMPAÑÍA *</label>
-    <div class="rec-comp-grid" id="rec-companias-grid"></div>
+    <div id="rec-companias-principales-wrap">
+      <div class="rec-comp-grid" id="rec-companias-grid"></div>
+    </div>
+    <div id="rec-companias-otros-wrap" style="display:none">
+      <input type="text" id="rec-otros-buscar" placeholder="Buscar compañía…" oninput="renderCompaniasOtros()" style="margin-bottom:10px">
+      <div class="rec-comp-grid" id="rec-companias-otros-grid"></div>
+    </div>
     <input type="hidden" id="rec-compania">
 
     <div id="rec-paso2" style="display:none;margin-top:16px">
       <div class="field">
-        <label>2. Modalidad de la recarga *</label>
-        <select id="rec-modalidad"></select>
+        <label>2. Modalidad / paquete *</label>
+        <select id="rec-modalidad" onchange="aplicarMontoDeModalidad()"></select>
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
@@ -924,7 +930,11 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
         </div>
       </div>
 
-      <div class="field">
+      <div id="rec-monto-fijo-box" class="cambio-box" style="display:none;margin-bottom:10px">
+        <div class="lbl">Precio del paquete</div>
+        <div class="num" id="rec-monto-fijo-num">$0.00</div>
+      </div>
+      <div class="field" id="rec-monto-manual-wrap">
         <label>Monto de la recarga</label>
         <div class="rec-montos-grid" id="rec-montos-rapidos"></div>
         <input type="number" id="rec-monto" min="10" step="1" placeholder="Otro monto ($)" oninput="actualizarResumenRecarga()">
@@ -1370,9 +1380,11 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
         <div class="field">
           <label>Modalidades de recarga</label>
           <div style="display:flex;gap:8px">
-            <input id="cfg-rec-modalidad-nueva" placeholder="Nombre de la modalidad" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();agregarModalidadRecarga();}">
+            <input id="cfg-rec-modalidad-nueva" placeholder="Nombre de la modalidad" style="flex:2" onkeydown="if(event.key==='Enter'){event.preventDefault();agregarModalidadRecarga();}">
+            <input id="cfg-rec-modalidad-monto" type="number" min="0" step="1" placeholder="Precio fijo (opcional)" style="flex:1">
             <button class="btn btn-primary btn-sm" onclick="agregarModalidadRecarga()">+ Agregar</button>
           </div>
+          <p style="font-size:11px;color:var(--txt2);margin-top:4px">Si le pones precio fijo, al elegir esta modalidad en Recargas se usa ese monto directo (como un paquete real) en vez de pedir el monto a mano.</p>
           <div id="cfg-rec-modalidades-list" style="margin-top:8px"></div>
         </div>
       </details>
@@ -2955,15 +2967,31 @@ async function iniciarApp() {
     save();
   }
   // Cada compañía necesita al menos una "modalidad" (tiempo aire, paquete de
-  // datos, etc.) para poder recargar — se siembra un default genérico la
-  // primera vez (o si se agregó una compañía nueva a COMPANIAS_RECARGA) y
-  // el negocio la ajusta luego en Configuración → Recargas telefónicas,
-  // según el catálogo real que le dé su proveedor.
+  // datos, etc.) para poder recargar. Telcel/Movistar/Unefon/AT&T/BAIT
+  // (RECARGA_PAQUETES_DEFAULT) traen su catálogo real de paquetes con
+  // precio fijo; el resto arranca con un genérico "Tiempo aire" (monto a
+  // mano) que el negocio ajusta luego en Configuración según lo que le dé
+  // su proveedor. Compatibilidad: versiones previas guardaban solo el
+  // nombre como texto plano — se convierte a {nombre, monto:null}.
   if (!cfg.recargaModalidades) cfg.recargaModalidades = {};
+  Object.keys(cfg.recargaModalidades).forEach(k => {
+    cfg.recargaModalidades[k] = (cfg.recargaModalidades[k] || []).map(m =>
+      typeof m === 'string' ? { nombre: m, monto: null } : m
+    );
+  });
   let modalidadesNuevas = false;
   Object.keys(COMPANIAS_RECARGA).forEach(k => {
-    if (!cfg.recargaModalidades[k] || !cfg.recargaModalidades[k].length) {
-      cfg.recargaModalidades[k] = ['Tiempo aire'];
+    const actual = cfg.recargaModalidades[k];
+    const esSoloGenericoSinTocar = actual && actual.length === 1 && actual[0].nombre === 'Tiempo aire' && actual[0].monto == null;
+    if (!actual || !actual.length) {
+      cfg.recargaModalidades[k] = RECARGA_PAQUETES_DEFAULT[k]
+        ? RECARGA_PAQUETES_DEFAULT[k].map(p => ({...p}))
+        : [{ nombre: 'Tiempo aire', monto: null }];
+      modalidadesNuevas = true;
+    } else if (RECARGA_PAQUETES_DEFAULT[k] && esSoloGenericoSinTocar) {
+      // Todavía tiene el placeholder genérico sin personalizar — se
+      // reemplaza por el catálogo real de paquetes de esta compañía.
+      cfg.recargaModalidades[k] = RECARGA_PAQUETES_DEFAULT[k].map(p => ({...p}));
       modalidadesNuevas = true;
     }
   });
@@ -3512,7 +3540,7 @@ function renderModalidadesConfig() {
   const modalidades = (cfg.recargaModalidades && cfg.recargaModalidades[compania]) || [];
   list.innerHTML = modalidades.map((m,i) => `
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--border)">
-      <span style="font-size:12px">${esc(m)}</span>
+      <span style="font-size:12px">${esc(m.nombre)}${m.monto!=null ? ` — <b>${mxn(m.monto)}</b>` : ''}</span>
       <button class="btn btn-ghost btn-sm" onclick="eliminarModalidadRecarga('${compania}',${i})">✕</button>
     </div>`).join('') || `<p style="font-size:12px;color:var(--txt2)">Sin modalidades — agrega al menos una para poder recargar esta compañía.</p>`;
 }
@@ -3520,22 +3548,26 @@ function renderModalidadesConfig() {
 function agregarModalidadRecarga() {
   const sel = document.getElementById('cfg-rec-comp-sel');
   const input = document.getElementById('cfg-rec-modalidad-nueva');
+  const inputMonto = document.getElementById('cfg-rec-modalidad-monto');
   const compania = sel.value;
   const nombre = input.value.trim();
+  const montoVal = parseFloat(inputMonto.value);
+  const monto = isNaN(montoVal) ? null : montoVal;
   if (!nombre) { toast('Escribe el nombre de la modalidad','warn'); return; }
   if (!cfg.recargaModalidades) cfg.recargaModalidades = {};
   if (!cfg.recargaModalidades[compania]) cfg.recargaModalidades[compania] = [];
-  if (cfg.recargaModalidades[compania].some(m => m.toLowerCase() === nombre.toLowerCase())) {
+  if (cfg.recargaModalidades[compania].some(m => m.nombre.toLowerCase() === nombre.toLowerCase() && m.monto === monto)) {
     toast('Esa modalidad ya existe para esta compañía','warn'); return;
   }
-  cfg.recargaModalidades[compania].push(nombre);
+  cfg.recargaModalidades[compania].push({ nombre, monto });
   saveCfg();
   input.value = '';
+  inputMonto.value = '';
   renderModalidadesConfig();
   // Si esa misma compañía está elegida ahora mismo en la pantalla de
   // Recargas, refresca su selector de modalidad también.
   const recSel = document.getElementById('rec-compania');
-  if (recSel && recSel.value === compania) renderModalidadesRecarga(compania);
+  if (recSel && recSel.value === compania) { renderModalidadesRecarga(compania); aplicarMontoDeModalidad(); }
   toast('Modalidad agregada ✓');
 }
 
@@ -3547,7 +3579,7 @@ function eliminarModalidadRecarga(compania, idx) {
   saveCfg();
   renderModalidadesConfig();
   const recSel = document.getElementById('rec-compania');
-  if (recSel && recSel.value === compania) renderModalidadesRecarga(compania);
+  if (recSel && recSel.value === compania) { renderModalidadesRecarga(compania); aplicarMontoDeModalidad(); }
 }
 
 function guardarTelefonoSoporteRecarga() {
@@ -5516,9 +5548,68 @@ const COMPANIAS_RECARGA = {
   otra:'Otra',
 };
 const MONTOS_RECARGA_SUGERIDOS = [10,20,30,50,80,100,150,200,300,500];
-// Cuántas compañías mostrar en la fila de acceso rápido "Más usadas",
-// calculada en vivo a partir del historial (ver companiasFrecuentes()).
-const RECARGA_FRECUENTES_N = 6;
+
+// Compañías que se muestran de entrada en la pestaña "Principales" — el
+// resto vive en "Otros" (buscable). Cada una trae su catálogo real de
+// paquetes {nombre, monto} tal como los vende el negocio — se siembran la
+// primera vez (o si el catálogo de esa compañía sigue siendo el genérico
+// "Tiempo aire" sin personalizar) en iniciarApp(); si el negocio ya editó
+// sus propias modalidades a mano, esa edición nunca se pisa.
+const RECARGA_COMPANIAS_PRINCIPALES = ['telcel', 'movistar', 'unefon', 'att', 'bait'];
+
+const RECARGA_PAQUETES_DEFAULT = {
+  telcel: [
+    { nombre: '50 MB / 1 día', monto: 10 },
+    { nombre: '100 MB / 2 días', monto: 20 },
+    { nombre: '160 MB / 3 días', monto: 30 },
+    { nombre: '500 MB / 7 días (incluye Instagram y Snapchat)', monto: 50 },
+    { nombre: '800 MB / 12 días', monto: 80 },
+    { nombre: '1.5 GB / 15 días (incluye Instagram y Snapchat)', monto: 100 },
+    { nombre: '2.5 GB / 25 días (incluye Instagram, Snapchat y Claro Música)', monto: 150 },
+    { nombre: '3.5 GB / 30 días', monto: 200 },
+  ],
+  movistar: [
+    { nombre: '2 días', monto: 20 },
+    { nombre: '3 días', monto: 30 },
+    { nombre: '3 días', monto: 40 },
+    { nombre: '5 días', monto: 50 },
+    { nombre: '6 días', monto: 60 },
+    { nombre: '7 días', monto: 70 },
+    { nombre: '8 días', monto: 80 },
+    { nombre: '10 días', monto: 100 },
+    { nombre: '12 días', monto: 120 },
+    { nombre: '15 días', monto: 150 },
+  ],
+  unefon: [
+    { nombre: 'Recarga $10', monto: 10 },
+    { nombre: 'Recarga $20', monto: 20 },
+    { nombre: 'Recarga $30', monto: 30 },
+    { nombre: 'Recarga $50', monto: 50 },
+    { nombre: 'Recarga $70', monto: 70 },
+  ],
+  att: [
+    { nombre: '200 MB / 1 día', monto: 20 },
+    { nombre: '300 MB / 3 días', monto: 30 },
+    { nombre: '500 MB / 5 días', monto: 50 },
+    { nombre: '700 MB / 10 días', monto: 70 },
+    { nombre: '1.5 GB / 14 días', monto: 100 },
+    { nombre: '2.3 GB / 25 días', monto: 150 },
+    { nombre: '3 GB / 30 días', monto: 200 },
+    { nombre: '4.5 GB / 30 días', monto: 300 },
+  ],
+  bait: [
+    { nombre: '1 GB por 3 días', monto: 30 },
+    { nombre: '2 GB por 7 días', monto: 50 },
+    { nombre: '4 GB por 7 días', monto: 60 },
+    { nombre: '4 GB por 7 días + Membresía Salud', monto: 65 },
+    { nombre: '5 GB por 15 días', monto: 100 },
+    { nombre: 'GB ilimitados por 15 días', monto: 120 },
+    { nombre: '8 GB por 20 días', monto: 125 },
+    { nombre: 'GB ilimitados por 15 días + Membresía Salud', monto: 135 },
+    { nombre: '12 GB por 30 días', monto: 200 },
+    { nombre: 'GB ilimitados por 30 días', monto: 230 },
+  ],
+};
 
 function renderMontosRecarga() {
   const wrap = document.getElementById('rec-montos-rapidos');
@@ -5549,32 +5640,33 @@ function botonCompaniaHTML(key, seleccionada) {
   </button>`;
 }
 
-// Las compañías que más se han recargado (histórico completo, solo
-// completadas) para tenerlas a un toque, sin tener que buscarlas en la
-// cuadrícula completa cada vez.
-function companiasFrecuentes(n = RECARGA_FRECUENTES_N) {
-  const conteo = {};
-  (db.recargas||[]).forEach(r => {
-    if (r.estatus === 'completada') conteo[r.compania] = (conteo[r.compania]||0) + 1;
-  });
-  return Object.keys(conteo)
-    .sort((a,b) => conteo[b]-conteo[a])
-    .slice(0, n);
+function renderCompaniasRecarga() {
+  const gridPrincipales = document.getElementById('rec-companias-grid');
+  if (!gridPrincipales) return;
+  const seleccionada = document.getElementById('rec-compania').value;
+  gridPrincipales.innerHTML = RECARGA_COMPANIAS_PRINCIPALES
+    .filter(k => COMPANIAS_RECARGA[k])
+    .map(k => botonCompaniaHTML(k, seleccionada)).join('');
+  renderCompaniasOtros();
 }
 
-function renderCompaniasRecarga() {
-  const gridTodas = document.getElementById('rec-companias-grid');
-  const gridFrec  = document.getElementById('rec-companias-frecuentes');
-  const wrapFrec  = document.getElementById('rec-companias-frecuentes-wrap');
-  if (!gridTodas) return;
+function renderCompaniasOtros() {
+  const grid = document.getElementById('rec-companias-otros-grid');
+  if (!grid) return;
   const seleccionada = document.getElementById('rec-compania').value;
+  const q = (document.getElementById('rec-otros-buscar')?.value || '').trim().toLowerCase();
+  const otras = Object.keys(COMPANIAS_RECARGA).filter(k => !RECARGA_COMPANIAS_PRINCIPALES.includes(k));
+  const filtradas = q ? otras.filter(k => COMPANIAS_RECARGA[k].toLowerCase().includes(q)) : otras;
+  grid.innerHTML = filtradas.map(k => botonCompaniaHTML(k, seleccionada)).join('') ||
+    `<p style="font-size:12px;color:var(--txt2);text-align:center;padding:10px 0">Sin resultados.</p>`;
+}
 
-  gridTodas.innerHTML = Object.keys(COMPANIAS_RECARGA)
-    .map(k => botonCompaniaHTML(k, seleccionada)).join('');
-
-  const frecuentes = companiasFrecuentes();
-  if (gridFrec) gridFrec.innerHTML = frecuentes.map(k => botonCompaniaHTML(k, seleccionada)).join('');
-  if (wrapFrec) wrapFrec.style.display = frecuentes.length ? 'block' : 'none';
+function mostrarTabCompanias(tab) {
+  document.getElementById('rec-companias-principales-wrap').style.display = tab === 'principales' ? 'block' : 'none';
+  document.getElementById('rec-companias-otros-wrap').style.display = tab === 'otros' ? 'block' : 'none';
+  document.getElementById('rec-tab-principales').className = 'btn btn-sm' + (tab === 'principales' ? ' btn-primary' : ' btn-ghost');
+  document.getElementById('rec-tab-otros').className = 'btn btn-sm' + (tab === 'otros' ? ' btn-primary' : ' btn-ghost');
+  if (tab === 'otros') { renderCompaniasOtros(); setTimeout(() => document.getElementById('rec-otros-buscar').focus(), 50); }
 }
 
 function seleccionarCompaniaRecarga(key) {
@@ -5585,15 +5677,46 @@ function seleccionarCompaniaRecarga(key) {
   document.getElementById('rec-telefono').value = '';
   document.getElementById('rec-telefono-confirma').value = '';
   document.getElementById('rec-monto').value = '';
-  actualizarResumenRecarga();
+  aplicarMontoDeModalidad();
   setTimeout(() => document.getElementById('rec-telefono').focus(), 50);
 }
 
 function renderModalidadesRecarga(key) {
   const sel = document.getElementById('rec-modalidad');
   if (!sel) return;
-  const modalidades = (cfg.recargaModalidades && cfg.recargaModalidades[key]) || ['Tiempo aire'];
-  sel.innerHTML = modalidades.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
+  const modalidades = (cfg.recargaModalidades && cfg.recargaModalidades[key]) || [{ nombre: 'Tiempo aire', monto: null }];
+  sel.innerHTML = modalidades.map((m, i) => {
+    const label = m.monto != null ? `${esc(m.nombre)} — ${mxn(m.monto)}` : esc(m.nombre);
+    return `<option value="${i}" data-monto="${m.monto ?? ''}">${label}</option>`;
+  }).join('');
+}
+
+// Cuando la modalidad elegida trae un precio fijo (paquete real de la
+// compañía), se usa ese monto tal cual y se esconde el capturador manual —
+// evita que el cajero teclee un monto distinto al del paquete por error.
+// Si la modalidad no trae precio fijo (ej. "Tiempo aire" genérico en
+// "Otros"), se deja el capturador manual de siempre.
+function aplicarMontoDeModalidad() {
+  const sel = document.getElementById('rec-modalidad');
+  const montoWrap = document.getElementById('rec-monto-manual-wrap');
+  const montoFijoBox = document.getElementById('rec-monto-fijo-box');
+  if (!sel) return;
+  const opt = sel.selectedOptions[0];
+  const montoStr = opt ? opt.dataset.monto : '';
+  if (montoStr !== '' && montoStr != null) {
+    const monto = parseFloat(montoStr);
+    document.getElementById('rec-monto').value = monto;
+    if (montoWrap) montoWrap.style.display = 'none';
+    if (montoFijoBox) {
+      montoFijoBox.style.display = 'block';
+      document.getElementById('rec-monto-fijo-num').textContent = mxn(monto);
+    }
+  } else {
+    document.getElementById('rec-monto').value = '';
+    if (montoWrap) montoWrap.style.display = 'block';
+    if (montoFijoBox) montoFijoBox.style.display = 'none';
+  }
+  actualizarResumenRecarga();
 }
 
 function actualizarResumenRecarga() {
@@ -5621,7 +5744,12 @@ async function procesarRecarga() {
   if (!tieneRecargas()) { toast('Recargas es exclusivo de NovaPOS Versión 2. Contacta a tu distribuidor para actualizar.','err'); return; }
 
   const compania = document.getElementById('rec-compania').value;
-  const modalidad = document.getElementById('rec-modalidad').value;
+  // El <select> de modalidad usa el índice del catálogo como value (dos
+  // paquetes de la misma compañía pueden llamarse igual, ej. Movistar
+  // "3 días" a $30 y a $40) — aquí se resuelve al nombre real para guardarlo.
+  const modalidadIdx = parseInt(document.getElementById('rec-modalidad').value, 10);
+  const modalidadObj = (cfg.recargaModalidades && cfg.recargaModalidades[compania] || [])[modalidadIdx];
+  const modalidad = (modalidadObj && modalidadObj.nombre) || '';
   const telefono = document.getElementById('rec-telefono').value.trim();
   const telefonoConfirma = document.getElementById('rec-telefono-confirma').value.trim();
   const monto    = parseFloat(document.getElementById('rec-monto').value);
