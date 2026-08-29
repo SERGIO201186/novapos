@@ -3198,7 +3198,7 @@ async function syncNow() {
         // dejarlo fuera aquí borraba el código de todos al sincronizar.
         vendedores:  (db.vendedores || []).map(({id, nombre, codigoEmpleado}) => ({id, nombre, codigoEmpleado})),
         entradas_inventario: db.entradasInventario || [],
-        turnos: (db.turnos || []).map(t => ({ ...t, vendedorIds: JSON.stringify(t.vendedorIds||[]) })),
+        turnos: (db.turnos || []).map(t => ({ ...t, vendedorIds: JSON.stringify(vendedorIdsACodigos(t.vendedorIds||[])) })),
       }
     });
     const ok = !!(res && res.ok);
@@ -3295,7 +3295,7 @@ async function cargarDeSheets(avisar = true, completo = false) {
       let vendedorIds = [];
       try { vendedorIds = typeof t.vendedorIds === 'string' ? JSON.parse(t.vendedorIds || '[]') : (t.vendedorIds || []); }
       catch { vendedorIds = []; }
-      return { ...t, vendedorIds };
+      return { ...t, vendedorIds: codigosAVendedorIds(vendedorIds) };
     });
     save();
 
@@ -3830,6 +3830,26 @@ function abrirTurnoModal(id) {
   openModal('modal-turno');
 }
 
+// db.turnos[].vendedorIds guarda ids internos (uid()) para que la app pueda
+// relacionar todo de forma estable aunque a alguien le cambien el nombre o
+// el código después. Pero esos ids no dicen nada al verlos directo en la
+// hoja "turnos" de Sheets — para que ahí se lea el código de empleado
+// (EMP-001, etc.) en vez de una cadena sin sentido, se convierte justo al
+// subir y se revierte justo al bajar; internamente la app sigue trabajando
+// siempre con ids.
+function vendedorIdsACodigos(ids) {
+  return (ids || []).map(id => {
+    const v = db.vendedores.find(x => x.id === id);
+    return (v && v.codigoEmpleado) || id; // sin match: deja el valor tal cual
+  });
+}
+function codigosAVendedorIds(codigos) {
+  return (codigos || []).map(codigo => {
+    const v = db.vendedores.find(x => x.codigoEmpleado === codigo);
+    return (v && v.id) || codigo; // compatibilidad con datos viejos que ya traían ids
+  });
+}
+
 function guardarTurno() {
   const nombre = document.getElementById('turno-nombre').value.trim();
   const horaInicio = document.getElementById('turno-inicio').value;
@@ -3848,7 +3868,7 @@ function guardarTurno() {
     db.turnos.push(turno);
   }
   save();
-  saveAndSyncFast('turnos', { ...turno, vendedorIds: JSON.stringify(turno.vendedorIds||[]) });
+  saveAndSyncFast('turnos', { ...turno, vendedorIds: JSON.stringify(vendedorIdsACodigos(turno.vendedorIds||[])) });
   closeModal('modal-turno');
   renderTurnos();
   toast(`Turno "${nombre}" guardado ✓`);
