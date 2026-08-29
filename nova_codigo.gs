@@ -132,14 +132,29 @@ function doPost(e) {
     // reemplaza una sola hoja, aquí 'data' es un objeto {nombreHoja: filas[]}
     // con varias hojas a la vez.
     if (action === 'sync_all') {
+      const errores = [];
       Object.keys(data || {}).forEach(sheetName2 => {
-        const sh = getSheet(sheetName2);
-        const shHeaders = ensureHeaders_(sh, sheetName2);
-        const lastRow = sh.getLastRow();
-        if (lastRow > 1) sh.deleteRows(2, lastRow-1);
-        (data[sheetName2] || []).forEach(d => sh.appendRow(shHeaders.map(h=>d[h]??'')));
+        // Cada hoja se procesa en su propio try/catch: si una hoja falla (ej.
+        // filas congeladas o protegidas que impiden borrar), las demás no se
+        // quedan sin procesar — antes, un error en cualquier hoja detenía el
+        // forEach entero y las hojas que venían después (turnos,
+        // entradas_inventario) nunca llegaban a recibir sus encabezados.
+        try {
+          const sh = getSheet(sheetName2);
+          const shHeaders = ensureHeaders_(sh, sheetName2);
+          const lastRow = sh.getLastRow();
+          // clearContent() en vez de deleteRows(): borra el contenido de las
+          // filas de datos sin tocar la estructura de la hoja, así que nunca
+          // choca con filas congeladas/protegidas ni con el límite de "no se
+          // pueden borrar todas las filas" — deja el renglón de encabezados
+          // intacto en la fila 1 siempre.
+          if (lastRow > 1) sh.getRange(2, 1, lastRow - 1, sh.getLastColumn()).clearContent();
+          (data[sheetName2] || []).forEach(d => sh.appendRow(shHeaders.map(h=>d[h]??'')));
+        } catch (e) {
+          errores.push(sheetName2 + ': ' + e.message);
+        }
       });
-      return json({ok:true});
+      return errores.length ? json({ok:false, error: errores.join(' | ')}) : json({ok:true});
     }
 
     const sheet = getSheet(sheetName || 'productos');
@@ -171,9 +186,10 @@ function doPost(e) {
       return json({ok:true});
     }
     if (action === 'sync') {
-      // Bulk sync: replace all rows
+      // Bulk sync: replace all rows. clearContent() en vez de deleteRows()
+      // (ver el mismo cambio y comentario en 'sync_all' más arriba).
       const lastRow = sheet.getLastRow();
-      if (lastRow > 1) sheet.deleteRows(2, lastRow-1);
+      if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).clearContent();
       data.forEach(d => sheet.appendRow(headers.map(h=>d[h]??'')));
       return json({ok:true});
     }
