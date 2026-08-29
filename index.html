@@ -3177,8 +3177,10 @@ async function syncNow() {
         cortes:      db.cortes,
         recargas:    db.recargas || [],
         // El NIP de cada vendedor no va en la hoja — vive en Propiedades del
-        // script (ver sheetsSetPin) y se sube aparte, no con este botón.
-        vendedores:  (db.vendedores || []).map(({id, nombre}) => ({id, nombre})),
+        // script (ver sheetsSetPin) y se sube aparte, no con este botón. El
+        // código de empleado SÍ va en la hoja (ver SHEET_HEADERS.vendedores) —
+        // dejarlo fuera aquí borraba el código de todos al sincronizar.
+        vendedores:  (db.vendedores || []).map(({id, nombre, codigoEmpleado}) => ({id, nombre, codigoEmpleado})),
         entradas_inventario: db.entradasInventario || [],
         turnos: (db.turnos || []).map(t => ({ ...t, vendedorIds: JSON.stringify(t.vendedorIds||[]) })),
       }
