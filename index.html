@@ -751,6 +751,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
   <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
     <h2 style="font:700 1.1rem var(--sans)" id="inv-view-title">📦 Inventario</h2>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-ghost btn-sm" onclick="fusionarDuplicados()">🔀 Fusionar duplicados</button>
       <button class="btn btn-ghost btn-sm" onclick="exportCSV()">⬇ CSV</button>
       <button class="btn btn-primary" id="btn-nuevo-prod" onclick="openProdModal()">+ Nuevo producto</button>
     </div>
@@ -4402,6 +4403,53 @@ function exportCSV() {
     download:`inventario_${hoy()}.csv`
   });
   a.click();
+}
+
+// Agrupa productos por código de barras — la causa típica de "productos
+// duplicados" es dar de alta el mismo producto en dos dispositivos distintos
+// antes de sincronizar entre ellos: cada uno genera su propio id local, así
+// que el "upsert" a Google Sheets los sube como dos filas distintas en vez de
+// actualizar la misma (ver comentario en nova_codigo.gs, acción 'upsert').
+function buscarDuplicados() {
+  const porBarcode = new Map();
+  db.productos.forEach(p => {
+    const bc = (p.barcode||'').trim();
+    if (!bc) return;
+    if (!porBarcode.has(bc)) porBarcode.set(bc, []);
+    porBarcode.get(bc).push(p);
+  });
+  return [...porBarcode.values()].filter(grupo => grupo.length > 1);
+}
+
+// Cuántos campos opcionales tiene capturados un producto — al fusionar
+// duplicados, se conserva el que tenga más información en vez del primero
+// que aparezca en el arreglo (orden que no dice nada sobre cuál copia es la
+// "buena").
+function camposLlenos(p) {
+  return ['cat','proveedor','costo','vence','desc'].filter(k=>p[k]).length;
+}
+
+async function fusionarDuplicados() {
+  const grupos = buscarDuplicados();
+  if (!grupos.length) { toast('No se encontraron productos duplicados','ok'); return; }
+  const resumen = grupos.map(g =>
+    `• ${g[0].nombre} (${g[0].barcode}) — ${g.length} copias, stock total ${g.reduce((s,p)=>s+p.stock,0)}`
+  ).join('\n');
+  if (!confirm(`Se encontraron ${grupos.length} producto(s) duplicado(s) por código de barras:\n\n${resumen}\n\nSe conservará uno de cada uno (sumando su stock) y se eliminarán las copias, tanto aquí como en Google Sheets. ¿Continuar?`)) return;
+
+  grupos.forEach(grupo => {
+    const [conservar, ...resto] = [...grupo].sort((a,b) => camposLlenos(b) - camposLlenos(a));
+    conservar.stock = grupo.reduce((s,p)=>s+p.stock,0);
+    resto.forEach(p => {
+      db.productos = db.productos.filter(x=>x.id!==p.id);
+      saveAndDeleteFast('productos', p.id);
+    });
+    saveAndSyncFast('productos', conservar);
+  });
+
+  renderInv();
+  renderPosGrid();
+  toast(`${grupos.length} producto(s) fusionado(s) ✓`);
 }
 
 // ══════════════════════════════════════════════════════════
