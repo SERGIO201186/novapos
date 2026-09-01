@@ -169,7 +169,19 @@ function doPost(e) {
       const idField = headers.includes('id') ? 'id' : 'key';
       const rows = sheet.getDataRange().getValues();
       const idCol = headers.indexOf(idField);
-      const existing = rows.findIndex((r,i)=>i>0 && r[idCol]===data[idField]);
+      let existing = rows.findIndex((r,i)=>i>0 && r[idCol]===data[idField]);
+      // Productos duplicados: si el mismo producto se da de alta casi al
+      // mismo tiempo en dos dispositivos distintos (cada uno sin saber del
+      // otro todavía), cada uno genera su propio id local — sin esto, el
+      // upsert de cada uno no encontraba la fila del otro (ids distintos) y
+      // los subía como dos productos separados con el mismo código de
+      // barras. Como respaldo al id, si no hay match por id pero sí existe
+      // ya una fila con el mismo "barcode", se actualiza esa en vez de
+      // agregar una nueva.
+      if (existing < 0 && (sheetName || '') === 'productos' && data.barcode) {
+        const bcCol = headers.indexOf('barcode');
+        if (bcCol >= 0) existing = rows.findIndex((r,i)=>i>0 && String(r[bcCol])===String(data.barcode));
+      }
       const row = headers.map(h => data[h] ?? '');
       if (existing > 0) sheet.getRange(existing+1,1,1,row.length).setValues([row]);
       else sheet.appendRow(row);
