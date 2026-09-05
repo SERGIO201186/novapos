@@ -684,6 +684,9 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
   <span id="sync-label" style="font-size:11px;color:var(--txt3)">Sin conectar</span>
   <button id="btn-install" onclick="installPWA()" style="display:none" class="btn btn-ghost btn-sm" title="Instalar NovaPOS">📲 Instalar</button>
   <button id="btn-soporte-topbar" class="btn btn-ghost btn-sm" onclick="solicitarSoporte()" title="Solicitar soporte">🆘</button>
+  <button id="btn-alertas" class="btn btn-ghost btn-sm" onclick="mostrarAlertas()" title="Alertas de inventario" style="position:relative">
+    🔔<span id="alert-bell-count" style="display:none;align-items:center;justify-content:center;position:absolute;top:0;right:0;min-width:15px;height:15px;background:var(--rojo);color:#fff;font-size:10px;line-height:1;border-radius:999px;padding:1px 3px;font-weight:700"></span>
+  </button>
   <div id="caja-badge">
     <span class="lbl">Caja&nbsp;</span>
     <span class="val" id="badge-saldo">$0.00</span>
@@ -1056,6 +1059,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
     <button class="tab-btn active" onclick="showTab('r-resumen',this)">Resumen</button>
     <button class="tab-btn" onclick="showTab('r-ventas',this)">Ventas</button>
     <button class="tab-btn" onclick="showTab('r-top',this)">Top productos</button>
+    <button class="tab-btn" onclick="showTab('r-rent',this)">Rentabilidad</button>
     <button class="tab-btn" onclick="showTab('r-cortes',this)">Cortes</button>
   </div>
 
@@ -1077,6 +1081,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
       <div class="tile rojo"><div class="t-lbl">Costo</div><div class="t-val" id="r-costo">$0</div></div>
       <div class="tile indigo"><div class="t-lbl">Ganancia</div><div class="t-val" id="r-gan">$0</div></div>
       <div class="tile amber"><div class="t-lbl">Margen</div><div class="t-val" id="r-marg">0%</div></div>
+      <div class="tile"><div class="t-lbl">Fiado (crédito)</div><div class="t-val" id="r-fiado">$0</div></div>
     </div>
     <div class="card">
       <div class="card-hd">Ingresos últimos 7 días</div>
@@ -1091,6 +1096,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
       <input type="date" id="rv-fecha" onchange="renderHistorial()">
       <select id="rv-emp" onchange="renderHistorial()"><option value="">Todos los empleados</option></select>
       <select id="rv-turno" onchange="renderHistorial()"><option value="">Todos los turnos</option></select>
+      <select id="rv-suc" onchange="renderHistorial()" style="display:none"><option value="">Todas las sucursales</option></select>
     </div>
     <div class="tbl-wrap">
       <table>
@@ -1110,6 +1116,39 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
     </div>
   </div>
 
+  <!-- RENTABILIDAD -->
+  <div id="r-rent" style="display:none">
+    <div class="card">
+      <div class="card-hd">💹 Rentabilidad por producto</div>
+      <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Usa el período/empleado elegidos en la pestaña Resumen. Ordenado de mayor a menor ganancia.</p>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Producto</th><th>Unidades</th><th>Ingreso</th><th>Costo</th><th>Ganancia</th><th>Margen</th></tr></thead>
+          <tbody id="rrent-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-hd">🔄 Rotación de inventario (últimos 30 días)</div>
+      <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Días de inventario restante al ritmo de venta actual — lo primero de la lista es lo que se está agotando más rápido; "Sin ventas" es lo que lleva 30 días sin moverse.</p>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Producto</th><th>Stock</th><th>Vendido (30d)</th><th>Días de inventario</th></tr></thead>
+          <tbody id="rrot-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-hd">🔔 Alertas de inventario</div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Producto</th><th>Alerta</th><th>Detalle</th></tr></thead>
+          <tbody id="ralertas-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <!-- CORTES -->
   <div id="r-cortes" style="display:none">
     <div class="tbl-wrap">
@@ -1117,6 +1156,16 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
         <thead><tr><th>Apertura</th><th>Cierre</th><th>Vendedor</th><th>Fondo</th><th>Ingresos</th><th>Egresos</th><th>Saldo final</th></tr></thead>
         <tbody id="rc-tbody"></tbody>
       </table>
+    </div>
+    <div class="card">
+      <div class="card-hd">📉 Faltantes de caja por vendedor</div>
+      <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Suma todos los cortes históricos de cada quien — útil para detectar un patrón, no solo un mal día aislado.</p>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Vendedor</th><th>Cortes</th><th>Con faltante</th><th>Faltante total</th><th>Promedio</th></tr></thead>
+          <tbody id="rc-faltantes"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 </div>
@@ -1440,6 +1489,39 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
       <button class="btn btn-primary btn-sm" onclick="abrirTurnoModal()">+ Agregar turno</button>
     </div>
 
+    <div class="card">
+      <div class="card-hd">👥 Clientes y fiado</div>
+      <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Da de alta a tus clientes frecuentes para venderles a crédito ("Fiado" en el método de pago del cobro) y llevar el saldo que te deben. El saldo no bloquea la venta — es tu decisión a quién fiarle y cuánto.</p>
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <input id="cfg-cliente-nombre" placeholder="Nombre del cliente" style="flex:1;min-width:140px" onkeydown="if(event.key==='Enter')agregarCliente()">
+        <input id="cfg-cliente-tel" placeholder="Teléfono (opcional)" style="width:150px" onkeydown="if(event.key==='Enter')agregarCliente()">
+        <input id="cfg-cliente-credito" type="number" min="0" placeholder="Límite de crédito" style="width:150px" onkeydown="if(event.key==='Enter')agregarCliente()">
+        <button class="btn btn-primary btn-sm" onclick="agregarCliente()">+ Agregar</button>
+      </div>
+      <div id="cfg-clientes-list"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-hd">🔔 Alertas de inventario por correo</div>
+      <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Además de la campanita 🔔 dentro de la app, puedes recibir un correo diario con el stock bajo y los productos por caducar — llega aunque nadie tenga la app abierta. Necesitas Google Sheets conectado (ver abajo).</p>
+      <div class="field">
+        <label>Correo para las alertas (opcional)</label>
+        <input id="cfg-alertas-email" type="email" placeholder="ejemplo@correo.com">
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="guardarAlertasEmail()">💾 Guardar</button>
+      <p style="font-size:11px;color:var(--txt3);margin-top:10px">Falta un paso único en Google: abre tu proyecto de Apps Script, selecciona la función <code>crearTriggerAlertasDiarias</code> en el menú de funciones y presiona ▶ Ejecutar una sola vez — así Google manda el correo todos los días sin que nadie tenga que hacer nada más.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-hd">🏬 Sucursal</div>
+      <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Si tienes más de un local usando la misma hoja de Google Sheets, ponle nombre a la sucursal de <b>este dispositivo</b> — se etiqueta en cada venta y corte de caja, y puedes filtrar por ella en Reportes → Ventas. Es propia de este dispositivo, no se sincroniza (cada sucursal escribe la suya).</p>
+      <div class="field">
+        <label>Nombre de esta sucursal (opcional)</label>
+        <input id="cfg-sucursal" placeholder="Ej. Sucursal Centro">
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="guardarSucursal()">💾 Guardar</button>
+    </div>
+
     <div class="card" id="cfg-card-owner-pin" style="display:none">
       <div class="card-hd">🔐 Acceso a Configuración</div>
       <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Si lo configuras, esta pantalla de Configuración (incluida esta misma tarjeta) va a pedir este NIP cada vez que alguien intente entrar — solo el dueño debería conocerlo. Déjalo vacío para que Configuración quede abierta como hasta ahora.</p>
@@ -1560,6 +1642,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
         <div class="num" id="cierre-recargas-num" style="font-size:14px">$0.00</div>
       </div>
     </div>
+    <p id="cierre-fiado-nota" style="display:none;font-size:12px;color:var(--txt2);margin:-8px 0 14px">📒 Además, <strong id="cierre-fiado-num"></strong> se vendió a fiado este turno — no cuenta en el efectivo esperado, se cobra hasta que el cliente abone.</p>
     <div class="cobrar-total-disp" style="margin-bottom:14px">
       <div class="lbl">Efectivo esperado en caja</div>
       <div class="num" id="cierre-esperado-num">$0.00</div>
@@ -1690,7 +1773,15 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
         <option value="tarjeta">💳 Tarjeta</option>
         <option value="transferencia">📱 Transferencia</option>
         <option value="mercadopago">🅼🅿 Mercado Pago (terminal)</option>
+        <option value="fiado">📒 Fiado (a crédito)</option>
       </select>
+    </div>
+    <div id="fiado-ui" style="display:none">
+      <div class="field">
+        <label>Cliente *</label>
+        <select id="cobrar-cliente"><option value="">— Elige un cliente —</option></select>
+      </div>
+      <p style="font-size:12px;color:var(--txt2)">Se le sumará este total a su saldo pendiente. Da de alta clientes desde Configuración.</p>
     </div>
     <div id="efectivo-ui">
       <div class="field">
@@ -1725,6 +1816,20 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
     <div id="cobrar-botones-normales" class="modal-botones-fijos">
       <button class="btn btn-ghost" style="flex:1" onclick="closeModal('modal-cobrar')">Cancelar</button>
       <button class="btn btn-primary btn-lg" style="flex:2" onclick="iniciarCobro()">✅ Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Abono a cuenta de cliente (baja su saldo de fiado) -->
+<div class="modal-bg" id="modal-abono">
+  <div class="modal" onkeydown="if(event.key==='Enter'){event.preventDefault();confirmarAbono();}">
+    <h3>💵 Registrar abono</h3>
+    <p style="font-size:13px;margin-bottom:4px">Cliente: <strong id="abono-cliente-nombre"></strong></p>
+    <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Debe actualmente: <strong id="abono-cliente-saldo"></strong></p>
+    <div class="field"><label>Monto del abono</label><input id="abono-monto" type="number" min="0" step="0.01" placeholder="0.00"></div>
+    <div class="modal-botones-fijos">
+      <button class="btn btn-ghost" style="flex:1" onclick="closeModal('modal-abono')">Cancelar</button>
+      <button class="btn btn-primary" style="flex:2" onclick="confirmarAbono()">✅ Registrar abono</button>
     </div>
   </div>
 </div>
@@ -2248,6 +2353,12 @@ function activarModoPro(lic) {
   const corteEmailEl = document.getElementById('cfg-corte-email');
   if (corteEmailEl) corteEmailEl.value = cfg.corteEmail || '';
 
+  const alertasEmailEl = document.getElementById('cfg-alertas-email');
+  if (alertasEmailEl) alertasEmailEl.value = cfg.alertasEmail || '';
+
+  const sucursalEl = document.getElementById('cfg-sucursal');
+  if (sucursalEl) sucursalEl.value = cfg.sucursal || '';
+
   const mpDeviceEl = document.getElementById('cfg-mp-device-id');
   if (mpDeviceEl) mpDeviceEl.value = cfg.mpDeviceId || '';
 
@@ -2275,6 +2386,8 @@ function activarModoPro(lic) {
   const cardTurnos = document.getElementById('cfg-card-turnos');
   if (cardTurnos) cardTurnos.style.display = esVersion2() ? '' : 'none';
   renderTurnos();
+
+  renderClientes();
 
   // NIP de dueño — mismo candado exclusivo de Versión 2 que Vendedores.
   const cardOwnerPin = document.getElementById('cfg-card-owner-pin');
@@ -2549,6 +2662,59 @@ function getPins_() {
   };
 }
 
+function getConfigMap_() {
+  const rows = getSheet('config').getDataRange().getValues();
+  const map = {};
+  rows.slice(1).forEach(r => { if (r[0]) map[String(r[0])] = r[1]; });
+  return map;
+}
+
+// 🔔 Alertas de inventario (stock bajo / próximo a caducar) por correo — a
+// diferencia de la campanita dentro de NovaPOS, esto llega aunque nadie
+// tenga la app abierta, porque corre del lado de Google. No hace nada
+// (ni manda correo vacío) si no hay destinatario configurado o no hay nada
+// que avisar hoy. El destinatario se configura desde NovaPOS → Configuración
+// → Alertas (se guarda en la hoja "config" como cualquier otro dato del
+// negocio), o si no, cae al mismo correo del resumen de turno.
+function enviarAlertasDiarias() {
+  const cfgMap = getConfigMap_();
+  const destino = cfgMap.alertas_email || cfgMap.corte_email;
+  if (!destino) return;
+
+  const rows = getSheet('productos').getDataRange().getValues();
+  const headers = rows[0];
+  const productos = rows.slice(1).map(r => Object.fromEntries(headers.map((h,i)=>[h,r[i]])));
+
+  const stockBajo = productos.filter(p => Number(p.stockmin) > 0 && Number(p.stock) <= Number(p.stockmin));
+  const limite = new Date(Date.now() + 30*24*3600*1000);
+  const porVencer = productos.filter(p => p.vence && new Date(p.vence) <= limite);
+  if (!stockBajo.length && !porVencer.length) return;
+
+  let html = '<h2 style="font-family:sans-serif">🔔 Alertas NovaPOS — ' + new Date().toLocaleDateString('es-MX') + '</h2>';
+  if (stockBajo.length) {
+    html += '<p style="font-family:sans-serif"><b>⚠️ Stock bajo (' + stockBajo.length + ')</b></p><ul style="font-family:sans-serif">' +
+      stockBajo.map(p => '<li>' + p.nombre + ' — quedan ' + p.stock + ' (mínimo ' + p.stockmin + ')</li>').join('') + '</ul>';
+  }
+  if (porVencer.length) {
+    html += '<p style="font-family:sans-serif"><b>⏳ Por caducar en 30 días o menos (' + porVencer.length + ')</b></p><ul style="font-family:sans-serif">' +
+      porVencer.map(p => '<li>' + p.nombre + ' — vence ' + p.vence + '</li>').join('') + '</ul>';
+  }
+  MailApp.sendEmail({ to: destino, subject: 'Alertas NovaPOS — stock bajo y caducidad', htmlBody: html });
+}
+
+// Ejecuta ESTA función UNA sola vez desde el editor de Apps Script (▶ Ejecutar,
+// con "crearTriggerAlertasDiarias" seleccionado en el menú de funciones) para
+// que Google mande el correo de enviarAlertasDiarias() todos los días a las
+// 8am sin que nadie tenga que hacer nada más. Se puede volver a correr sin
+// problema — primero borra cualquier trigger anterior de la misma función
+// para no terminar con dos avisos duplicados cada día.
+function crearTriggerAlertasDiarias() {
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'enviarAlertasDiarias') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('enviarAlertasDiarias').timeBased().everyDays(1).atHour(8).create();
+}
+
 // Relevo genérico hacia la API de Mercado Pago — agrega el Authorization
 // Bearer con MP_ACCESS_TOKEN (Propiedades del script) y traduce cualquier
 // error HTTP de MP a {ok:false, error} en vez de dejar tronar el script.
@@ -2580,11 +2746,11 @@ function mpProxy_(method, path, payload, onOk) {
 // completo a mano (ensureHeaders_, que usa sync_all antes de escribir).
 const SHEET_HEADERS = {
   productos:   ['id','sku','barcode','nombre','cat','proveedor','precio','costo','stock','stockmin','vence','unidad','desc'],
-  ventas:      ['id','folio','fecha','items','subtotal','descuento','total','recibido','cambio','metodo','vendedor'],
-  movimientos: ['id','fecha','tipo','monto','concepto'],
+  ventas:      ['id','folio','fecha','items','subtotal','descuento','total','recibido','cambio','metodo','vendedor','clienteId','sucursal'],
+  movimientos: ['id','fecha','tipo','monto','concepto','sucursal'],
   facturas:    ['id','folio','ventaId','fecha','clienteNombre','clienteRFC','clienteEmail','clienteDir','usoCFDI','metodoPago','formaPago','subtotal','iva','total','estatus','cfdiUUID'],
   recargas:    ['id','folio','fecha','compania','modalidad','telefono','monto','comisionPct','gananciaEstimada','estatus','folioProveedor','metodoPago','mensaje'],
-  cortes:      ['apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','folio','codigoEmpleado','efectivoEsperado','efectivoContado','faltante'],
+  cortes:      ['apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','folio','codigoEmpleado','efectivoEsperado','efectivoContado','faltante','sucursal','fiadoCount','fiadoTotal'],
   vendedores:  ['id','nombre','codigoEmpleado'],
   config:      ['key','value'],
   // Kardex de entradas de mercancía — separado de "movimientos" (que es
@@ -2595,6 +2761,13 @@ const SHEET_HEADERS = {
   // Catálogo de turnos de personal (Mañana/Noche, etc.) — informativo, no
   // tiene que ver con la apertura/cierre real de cada caja.
   turnos: ['id','nombre','horaInicio','horaFin','vendedorIds'],
+  // Clientes para venta a crédito ("fiado") — "saldo" es lo que debe
+  // actualmente, "limiteCredito" es informativo (el checkout no lo bloquea,
+  // solo lo usa NovaPOS para avisar). "clientes_movs" son solo los abonos
+  // (pagos a cuenta); las ventas a crédito ya quedan en "ventas" con su
+  // propio clienteId, no hace falta duplicarlas aquí.
+  clientes:      ['id','nombre','telefono','email','saldo','limiteCredito','notas'],
+  clientes_movs: ['id','clienteId','fecha','monto','concepto'],
 };
 
 function getSheet(name) {
@@ -2664,11 +2837,11 @@ async function copyScript() {
 // ══════════════════════════════════════════════════════════
 //  STATE
 // ══════════════════════════════════════════════════════════
-let db = { productos:[], ventas:[], movimientos:[], facturas:[], caja:{abierta:false,fondo:0,fechaApertura:null}, cortes:[], recargas:[], vendedores:[], entradasInventario:[], turnos:[] };
+let db = { productos:[], ventas:[], movimientos:[], facturas:[], caja:{abierta:false,fondo:0,fechaApertura:null}, cortes:[], recargas:[], vendedores:[], entradasInventario:[], turnos:[], clientes:[], clientesMovs:[] };
 // mpDeviceId: a propósito NO se sube nunca a guardarConfigEnSheets() —
 // identifica la terminal física Point pareada con ESTE dispositivo/caja,
 // que puede ser distinta en cada tablet si el negocio tiene varias.
-let cfg = { url:'', syncSecret:'', nombre:'NovaPOS Demo', rfc:'', tel:'', dir:'', giro:'generico', iva:16, logo:'', ticketAncho:'80', rechargeComision:6, invPin:'', ownerPin:'', corteEmail:'', mpDeviceId:'', recargaComisionFija:2, recargaModalidades:{}, recargaTelefonoSoporte:{}, recargaModoManual:false };
+let cfg = { url:'', syncSecret:'', nombre:'NovaPOS Demo', rfc:'', tel:'', dir:'', giro:'generico', iva:16, logo:'', ticketAncho:'80', rechargeComision:6, invPin:'', ownerPin:'', corteEmail:'', mpDeviceId:'', recargaComisionFija:2, recargaModalidades:{}, recargaTelefonoSoporte:{}, recargaModoManual:false, sucursal:'', alertasEmail:'' };
 let ticket = [];
 let editProdId = null;
 let syncing = false;
@@ -2698,6 +2871,8 @@ function load() {
   if (!db.vendedores) db.vendedores = [];
   if (!db.entradasInventario) db.entradasInventario = [];
   if (!db.turnos) db.turnos = [];
+  if (!db.clientes) db.clientes = [];
+  if (!db.clientesMovs) db.clientesMovs = [];
   if (!db.caja) db.caja = {abierta:false,fondo:0,fechaApertura:null};
 }
 
@@ -3129,6 +3304,7 @@ function showTab(id, el) {
   el.classList.add('active');
   if (id==='r-ventas') renderHistorial();
   if (id==='r-top') renderTop();
+  if (id==='r-rent') renderRentabilidad();
   if (id==='r-cortes') renderCortes();
 }
 
@@ -3259,6 +3435,8 @@ async function syncNow() {
         vendedores:  (db.vendedores || []).map(({id, nombre, codigoEmpleado}) => ({id, nombre, codigoEmpleado})),
         entradas_inventario: db.entradasInventario || [],
         turnos: (db.turnos || []).map(t => ({ ...t, vendedorIds: JSON.stringify(vendedorIdsACodigos(t.vendedorIds||[])) })),
+        clientes: db.clientes || [],
+        clientes_movs: db.clientesMovs || [],
       }
     });
     const ok = !!(res && res.ok);
@@ -3283,10 +3461,12 @@ const CAMPOS_NUMERICOS_SHEET = {
   movimientos: ['monto'],
   facturas:    ['subtotal','iva','total'],
   recargas:    ['monto','comisionPct','gananciaEstimada'],
-  cortes:      ['fondo','ingresos','egresos','saldoFinal','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','efectivoEsperado','efectivoContado','faltante'],
+  cortes:      ['fondo','ingresos','egresos','saldoFinal','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','efectivoEsperado','efectivoContado','faltante','fiadoCount','fiadoTotal'],
   vendedores:  [],
   entradas_inventario: ['cantidad','stockAntes','stockDespues'],
   turnos: [],
+  clientes: ['saldo','limiteCredito'],
+  clientes_movs: ['monto'],
 };
 function normalizarFilasSheet(sheetName, filas) {
   const numFields = CAMPOS_NUMERICOS_SHEET[sheetName] || [];
@@ -3321,10 +3501,11 @@ async function cargarDeSheets(avisar = true, completo = false) {
   if (!cfg.url) return false;
   setSyncState('syncing');
   try {
-    const [productos, ventasRaw, movimientos, facturas, cortes, recargas, vendedores, entradasInv, turnosRaw, configRaw, pins] = await Promise.all([
+    const [productos, ventasRaw, movimientos, facturas, cortes, recargas, vendedores, entradasInv, turnosRaw, clientesRaw, clientesMovsRaw, configRaw, pins] = await Promise.all([
       sheetsGet('productos'), sheetsGet('ventas', completo ? {} : {dias: DIAS_HISTORIAL_SYNC}), sheetsGet('movimientos'),
       sheetsGet('facturas'), sheetsGet('cortes'), sheetsGet('recargas'), sheetsGet('vendedores'),
       sheetsGet('entradas_inventario'), sheetsGet('turnos'),
+      sheetsGet('clientes'), sheetsGet('clientes_movs'),
       sheetsGet('config'), sheetsGetPins(),
     ]);
     if (productos === null) throw new Error('Sin respuesta del Apps Script');
@@ -3357,6 +3538,8 @@ async function cargarDeSheets(avisar = true, completo = false) {
       catch { vendedorIds = []; }
       return { ...t, vendedorIds: codigosAVendedorIds(vendedorIds) };
     });
+    db.clientes = normalizarFilasSheet('clientes', clientesRaw);
+    db.clientesMovs = normalizarFilasSheet('clientes_movs', clientesMovsRaw);
     save();
 
     // Trae también los datos del negocio que guardarConfigEnSheets() sube —
@@ -3370,6 +3553,7 @@ async function cargarDeSheets(avisar = true, completo = false) {
     if ('iva'            in configMap) cfg.iva    = parseFloat(configMap.iva) || cfg.iva;
     if ('giro'           in configMap) cfg.giro   = String(configMap.giro||cfg.giro);
     if ('corte_email'    in configMap) cfg.corteEmail = String(configMap.corte_email||'');
+    if ('alertas_email'  in configMap) cfg.alertasEmail = String(configMap.alertas_email||'');
     if (pins) { cfg.ownerPin = pins.ownerPin || ''; cfg.invPin = pins.invPin || ''; }
     saveCfg();
 
@@ -3386,7 +3570,7 @@ async function cargarDeSheets(avisar = true, completo = false) {
 function refrescarVistasTrasDescarga() {
   renderPosGrid(); renderInv(); renderCaja(); renderReportes();
   renderFacturas(); renderVentasParaFacturar(); renderRecargas();
-  renderVendedores(); renderHistorialInventario(); renderTurnos();
+  renderVendedores(); renderHistorialInventario(); renderTurnos(); renderClientes();
   // Refleja en los campos de Configuración lo que acaba de bajar de Sheets
   // (nombre del negocio, NIP de dueño/inventario, etc.), por si la pantalla
   // de Configuración ya estaba abierta cuando se descargó.
@@ -3401,6 +3585,7 @@ function refrescarVistasTrasDescarga() {
   const invPinEl = document.getElementById('cfg-inv-pin'); if (invPinEl) invPinEl.value = cfg.invPin || '';
   const ownerPinEl = document.getElementById('cfg-owner-pin'); if (ownerPinEl) ownerPinEl.value = cfg.ownerPin || '';
   const corteEmailEl = document.getElementById('cfg-corte-email'); if (corteEmailEl) corteEmailEl.value = cfg.corteEmail || '';
+  const alertasEmailEl = document.getElementById('cfg-alertas-email'); if (alertasEmailEl) alertasEmailEl.value = cfg.alertasEmail || '';
   updateBadge();
 }
 
@@ -3508,12 +3693,30 @@ async function guardarConfigEnSheets() {
     {key:'iva',            value:String(cfg.iva)},
     {key:'giro',           value:cfg.giro},
     {key:'corte_email',    value:cfg.corteEmail||''},
+    {key:'alertas_email',  value:cfg.alertasEmail||''},
     {key:'version',        value:'PRO-2.0'},
     {key:'ultima_sync',    value:new Date().toISOString()},
   ];
   for (const p of pairs) {
     await sheetsPost({ action:'upsert', sheet:'config', data:p });
   }
+}
+
+function guardarAlertasEmail() {
+  cfg.alertasEmail = document.getElementById('cfg-alertas-email').value.trim();
+  saveCfg();
+  if (cfg.url) sheetsPost({ action:'upsert', sheet:'config', data:{key:'alertas_email', value:cfg.alertasEmail} });
+  toast('Correo de alertas guardado ✓');
+}
+
+// A propósito NO se sube a la hoja "config" (que es compartida por todos los
+// dispositivos/sucursales conectados a la misma hoja de cálculo) — cada
+// dispositivo/caja tiene la SUYA propia, igual que mpDeviceId más arriba. Si
+// se subiera, cada sucursal se pisaría el nombre de las demás al sincronizar.
+function guardarSucursal() {
+  cfg.sucursal = document.getElementById('cfg-sucursal').value.trim();
+  saveCfg();
+  toast('Sucursal guardada ✓ — se etiquetará en las ventas y cortes de este dispositivo');
 }
 
 async function guardarConfigSheets() {
@@ -3846,6 +4049,89 @@ function eliminarVendedor(id) {
 }
 
 // ══════════════════════════════════════════════════════════
+//  CLIENTES Y FIADO — el saldo se actualiza desde registrarVentaCore()
+//  (cuando se cobra "Fiado") y desde confirmarAbono() (cuando pagan a
+//  cuenta). El límite de crédito es solo informativo: el checkout nunca
+//  bloquea una venta por rebasarlo, es criterio del negocio a quién fiarle.
+// ══════════════════════════════════════════════════════════
+function renderClientes() {
+  const list = document.getElementById('cfg-clientes-list');
+  if (!list) return;
+  if (!db.clientes.length) {
+    list.innerHTML = `<p style="font-size:12px;color:var(--txt2)">Sin clientes dados de alta todavía.</p>`;
+  } else {
+    list.innerHTML = [...db.clientes].sort((a,b)=>(b.saldo||0)-(a.saldo||0)).map(c => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--border);gap:8px;flex-wrap:wrap">
+        <span style="font-size:13px">${esc(c.nombre)}
+          ${c.telefono ? `<span style="color:var(--txt2)">· 📞 ${esc(c.telefono)}</span>` : ''}
+          ${(c.saldo||0)>0 ? `<span style="color:var(--rojo)">· Debe ${mxn(c.saldo)}</span>` : ''}
+          ${c.limiteCredito ? `<span style="color:var(--txt3)">· Límite ${mxn(c.limiteCredito)}</span>` : ''}
+        </span>
+        <span style="display:flex;gap:6px;flex-shrink:0">
+          ${(c.saldo||0)>0 ? `<button class="btn btn-ghost btn-sm" onclick="abrirAbonoCliente('${c.id}')">💵 Abonar</button>` : ''}
+          <button class="btn btn-danger btn-sm" onclick="eliminarCliente('${c.id}')">🗑</button>
+        </span>
+      </div>`).join('');
+  }
+  actualizarSelectClienteCobro();
+}
+
+function agregarCliente() {
+  const inputNombre = document.getElementById('cfg-cliente-nombre');
+  const inputTel = document.getElementById('cfg-cliente-tel');
+  const inputCredito = document.getElementById('cfg-cliente-credito');
+  const nombre = inputNombre.value.trim();
+  if (!nombre) { toast('Escribe el nombre del cliente','warn'); return; }
+  const c = { id: uid(), nombre, telefono: inputTel.value.trim(), email:'', saldo:0, limiteCredito: parseFloat(inputCredito.value)||0, notas:'' };
+  db.clientes.push(c);
+  inputNombre.value=''; inputTel.value=''; inputCredito.value='';
+  saveAndSyncFast('clientes', c);
+  renderClientes();
+  toast(`Cliente "${nombre}" agregado ✓`);
+}
+
+function eliminarCliente(id) {
+  const c = db.clientes.find(x=>x.id===id);
+  if (!c) return;
+  const aviso = (c.saldo||0)>0
+    ? `${c.nombre} todavía debe ${mxn(c.saldo)}. ¿Eliminarlo de todos modos?`
+    : `¿Eliminar a "${c.nombre}"?`;
+  if (!confirm(aviso)) return;
+  db.clientes = db.clientes.filter(x=>x.id!==id);
+  saveAndDeleteFast('clientes', id);
+  renderClientes();
+  toast('Cliente eliminado','warn');
+}
+
+let abonoClienteId = null;
+function abrirAbonoCliente(id) {
+  const c = db.clientes.find(x=>x.id===id); if (!c) return;
+  abonoClienteId = id;
+  document.getElementById('abono-cliente-nombre').textContent = c.nombre;
+  document.getElementById('abono-cliente-saldo').textContent = mxn(c.saldo||0);
+  document.getElementById('abono-monto').value = '';
+  openModal('modal-abono');
+}
+
+function confirmarAbono() {
+  const c = db.clientes.find(x=>x.id===abonoClienteId); if (!c) return;
+  const monto = parseFloat(document.getElementById('abono-monto').value);
+  if (!monto || monto<=0) { toast('Monto inválido','err'); return; }
+  c.saldo = Math.max(0, (c.saldo||0) - monto);
+  const fecha = new Date().toISOString();
+  const mov = { id:uid(), fecha, tipo:'ingreso', monto, concepto:`Abono de ${c.nombre}`, sucursal: cfg.sucursal || '' };
+  const abono = { id:uid(), clienteId:c.id, fecha, monto, concepto:'Abono a cuenta' };
+  db.movimientos.push(mov);
+  db.clientesMovs.push(abono);
+  closeModal('modal-abono');
+  saveAndSyncFast('clientes', c);
+  saveAndSyncFast('movimientos', mov);
+  saveAndSyncFast('clientes_movs', abono);
+  renderClientes(); renderCaja(); updateBadge();
+  toast(`Abono de ${mxn(monto)} registrado ✓`);
+}
+
+// ══════════════════════════════════════════════════════════
 //  TURNOS DE PERSONAL — catálogo de horarios (Mañana/Noche, o los que sea)
 //  con el personal asignado a cada uno. Es informativo/de rol de personal,
 //  independiente de cuándo cada quien realmente abre/cierra su caja.
@@ -4149,6 +4435,7 @@ function updateBadge() {
     .reduce((s,m)=>m.tipo==='ingreso'?s+m.monto:s-m.monto, 0);
   const saldo = db.caja.fondo + bal;
   document.getElementById('badge-saldo').textContent = mxn(saldo);
+  actualizarAlertBell();
 }
 
 // ══════════════════════════════════════════════════════════
@@ -4587,10 +4874,24 @@ function openCobrar() {
 function toggleEfectivo() {
   const m = document.getElementById('cobrar-metodo').value;
   document.getElementById('efectivo-ui').style.display = m==='efectivo'?'block':'none';
+  const fiadoUi = document.getElementById('fiado-ui');
+  if (fiadoUi) {
+    fiadoUi.style.display = m==='fiado'?'block':'none';
+    if (m==='fiado') actualizarSelectClienteCobro();
+  }
   // Si venían de un cobro con MP cancelado/fallido y cambian de método,
   // regresa a los botones normales — nunca se queda pegado en la vista de
   // "cobrando en terminal" cuando ya ni siquiera es el método elegido.
   ocultarUiCobroMP();
+}
+
+function actualizarSelectClienteCobro() {
+  const sel = document.getElementById('cobrar-cliente');
+  if (!sel) return;
+  const actual = sel.value;
+  sel.innerHTML = '<option value="">— Elige un cliente —</option>' +
+    db.clientes.map(c=>`<option value="${c.id}">${esc(c.nombre)}${c.saldo?` (debe ${mxn(c.saldo)})`:''}</option>`).join('');
+  if (db.clientes.some(c=>c.id===actual)) sel.value = actual;
 }
 
 function buildQuickAmts(total) {
@@ -4754,7 +5055,7 @@ async function cancelarCobroMP() {
 // con su fecha/hora y vendedor reales) — para no duplicar el descuento de
 // stock, el registro del movimiento de caja y la sincronización entre las
 // dos. La única diferencia entre ambas es de dónde sale fecha/vendedor.
-function registrarVentaCore({ items, subtotal, descuento, total, recibido, cambio, metodo, vendedor, fecha }) {
+function registrarVentaCore({ items, subtotal, descuento, total, recibido, cambio, metodo, vendedor, fecha, clienteId }) {
   // Descontar stock (solo se guardan/sincronizan los productos realmente afectados)
   const afectados = new Map();
   items.forEach(t=>{
@@ -4767,16 +5068,29 @@ function registrarVentaCore({ items, subtotal, descuento, total, recibido, cambi
     folio:'V-'+String(db.ventas.length+1).padStart(4,'0'),
     fecha, items: items.map(t=>({...t})),
     subtotal, descuento, total, recibido, cambio, metodo, vendedor,
+    clienteId: clienteId || '', sucursal: cfg.sucursal || '',
   };
   db.ventas.push(venta);
-  // El movimiento de caja usa la MISMA fecha que la venta — si se le pusiera
-  // la fecha de ahorita, una venta anterior inflaría "Ingresos hoy"/"Saldo en
-  // caja" del turno actual en vez de contar en el turno real al que pertenece.
-  const mov = {
-    id:uid(), fecha,
-    tipo:'ingreso', monto:total, concepto:`Venta ${venta.folio}`
-  };
-  db.movimientos.push(mov);
+
+  // Fiado: el dinero no entra a caja todavía (queda como cuenta por cobrar en
+  // el saldo del cliente), así que a diferencia de efectivo/tarjeta/
+  // transferencia/mercadopago, esta venta NO genera su movimiento de
+  // "ingreso" — ese se registra hasta que el cliente abona (ver
+  // confirmarAbono()). Sin este tratamiento aparte, "Ingresos"/"Saldo en
+  // caja" del turno se inflarían con dinero que en realidad no se ha cobrado.
+  let cliente = null;
+  let mov = null;
+  if (metodo === 'fiado' && clienteId) {
+    cliente = db.clientes.find(c => c.id === clienteId);
+    if (cliente) cliente.saldo = (cliente.saldo||0) + total;
+  } else {
+    // El movimiento de caja usa la MISMA fecha que la venta — si se le
+    // pusiera la fecha de ahorita, una venta anterior inflaría "Ingresos
+    // hoy"/"Saldo en caja" del turno actual en vez de contar en el turno
+    // real al que pertenece.
+    mov = { id:uid(), fecha, tipo:'ingreso', monto:total, concepto:`Venta ${venta.folio}`, sucursal: cfg.sucursal || '' };
+    db.movimientos.push(mov);
+  }
 
   save(); // persiste local al instante, sin esperar la red
 
@@ -4784,19 +5098,23 @@ function registrarVentaCore({ items, subtotal, descuento, total, recibido, cambi
   renderPosGrid();
   renderCaja();
   updateBadge();
+  if (cliente) renderClientes();
 
   // Sincroniza en segundo plano solo lo que cambió: la venta, el movimiento
-  // de caja y los productos con stock afectado. No bloquea la interfaz.
+  // de caja (si lo hubo) y los productos con stock afectado. No bloquea la
+  // interfaz.
   if (cfg.url) {
     setSyncState('syncing');
-    Promise.all([
+    const tareas = [
       // 'items' es un arreglo de objetos: Google Sheets solo guarda texto plano,
       // así que hay que mandarlo como JSON (cargarDeSheets lo vuelve a parsear
       // al bajarlo) — sin esto, la celda quedaba con "[object Object]" ilegible.
       sheetsUpsert('ventas', { ...venta, items: JSON.stringify(venta.items||[]) }),
-      sheetsUpsert('movimientos', mov),
       ...[...afectados.values()].map(p => sheetsUpsert('productos', p)),
-    ]).then(results => setSyncState(results.every(r => r && r.ok) ? 'ok' : 'error'))
+    ];
+    if (mov) tareas.push(sheetsUpsert('movimientos', mov));
+    if (cliente) tareas.push(sheetsUpsert('clientes', cliente));
+    Promise.all(tareas).then(results => setSyncState(results.every(r => r && r.ok) ? 'ok' : 'error'))
       .catch(() => setSyncState('error'));
   }
   return venta;
@@ -4805,12 +5123,17 @@ function registrarVentaCore({ items, subtotal, descuento, total, recibido, cambi
 async function confirmarVenta() {
   const {sub,desc,total} = getTotal();
   const metodo  = document.getElementById('cobrar-metodo').value;
-  const recibido= metodo==='efectivo' ? parseFloat(document.getElementById('cobrar-rec').value)||0 : total;
-  const cambio  = recibido - total;
+  let clienteId = '';
+  if (metodo === 'fiado') {
+    clienteId = document.getElementById('cobrar-cliente').value;
+    if (!clienteId) { toast('Elige un cliente para vender a crédito','err'); return; }
+  }
+  const recibido= metodo==='efectivo' ? parseFloat(document.getElementById('cobrar-rec').value)||0 : (metodo==='fiado' ? 0 : total);
+  const cambio  = metodo==='fiado' ? 0 : recibido - total;
   if (metodo==='efectivo' && recibido<total) { toast('Pago insuficiente','err'); return; }
 
   const venta = registrarVentaCore({
-    items: ticket, subtotal: sub, descuento: desc, total, recibido, cambio, metodo,
+    items: ticket, subtotal: sub, descuento: desc, total, recibido, cambio, metodo, clienteId,
     vendedor: db.caja.vendedorNombre || '', fecha: new Date().toISOString(),
   });
 
@@ -5442,10 +5765,17 @@ function calcularResumenPeriodo(apertura, cierreISO, fondo) {
 
   const ventasT = db.ventas.filter(v => v.fecha >= apertura && v.fecha <= cierreISO);
   const sumaMetodo = m => ventasT.filter(v=>v.metodo===m).reduce((s,v)=>s+v.total,0);
+  // El fiado no mete dinero a caja al momento de la venta (ver
+  // registrarVentaCore()) — se separa de "ventasTotal"/"ingresos" para no
+  // inflarlos con dinero que todavía no se cobra; se cuenta hasta que el
+  // cliente abona, como un ingreso normal de ese momento.
+  const ventasContado = ventasT.filter(v => v.metodo !== 'fiado');
+  const ventasFiado = ventasT.filter(v => v.metodo === 'fiado');
   // Solo cuentan las recargas que sí se cobraron (ver procesarRecarga()) —
   // una fallida nunca se le cobra al cliente ni entra a caja.
   const recargasT = (db.recargas||[]).filter(r => r.fecha >= apertura && r.fecha <= cierreISO && r.estatus === 'completada');
-  const ventasTotal = ventasT.reduce((s,v)=>s+v.total,0);
+  const ventasTotal = ventasContado.reduce((s,v)=>s+v.total,0);
+  const fiadoTotal = ventasFiado.reduce((s,v)=>s+v.total,0);
   const recargasTotal = recargasT.reduce((s,r)=>s+r.monto,0);
   const efectivo = sumaMetodo('efectivo');
   const otrosIngresos = Math.max(0, movIngresos - ventasTotal);
@@ -5459,10 +5789,11 @@ function calcularResumenPeriodo(apertura, cierreISO, fondo) {
   return {
     apertura, cierre: cierreISO,
     fondo, ingresos, egresos: egr, saldoFinal: fondo+ingresos-egr,
-    ventasCount: ventasT.length, ventasTotal,
+    ventasCount: ventasContado.length, ventasTotal,
     efectivo, tarjeta: sumaMetodo('tarjeta'), transferencia: sumaMetodo('transferencia'),
     recargasCount: recargasT.length, recargasTotal,
     efectivoEsperado,
+    fiadoCount: ventasFiado.length, fiadoTotal,
   };
 }
 
@@ -5483,6 +5814,11 @@ function cerrarCaja() {
   document.getElementById('cierre-fondo-num').textContent = mxn(preview.fondo);
   document.getElementById('cierre-recargas-num').textContent = mxn(preview.recargasTotal);
   document.getElementById('cierre-esperado-num').textContent = mxn(preview.efectivoEsperado);
+  const fiadoNota = document.getElementById('cierre-fiado-nota');
+  if (fiadoNota) {
+    fiadoNota.style.display = preview.fiadoTotal > 0 ? 'block' : 'none';
+    document.getElementById('cierre-fiado-num').textContent = mxn(preview.fiadoTotal);
+  }
   const contadoEl = document.getElementById('cierre-contado');
   contadoEl.value = '';
   document.getElementById('cierre-diferencia-num').textContent = mxn(0);
@@ -5521,6 +5857,7 @@ async function confirmarCierreCaja() {
     codigoEmpleado: (vendedorInfo && vendedorInfo.codigoEmpleado) || '',
     efectivoContado: contado,
     faltante,
+    sucursal: cfg.sucursal || '',
   };
   db.cortes.push(corte);
   db.caja = {abierta:false,fondo:0,fechaApertura:null};
@@ -5547,7 +5884,7 @@ async function registrarMov() {
   const concepto= document.getElementById('mov-concepto').value.trim();
   if (!monto||monto<=0) { toast('Monto inválido','err'); return; }
   if (!concepto) { toast('Escribe un concepto','err'); return; }
-  const mov = {id:uid(), fecha:new Date().toISOString(), tipo, monto, concepto};
+  const mov = {id:uid(), fecha:new Date().toISOString(), tipo, monto, concepto, sucursal: cfg.sucursal || ''};
   db.movimientos.push(mov);
   document.getElementById('mov-monto').value='';
   document.getElementById('mov-concepto').value='';
@@ -6092,6 +6429,18 @@ function refreshFiltrosReportes() {
     }).join('');
     if ([...selTurno.options].some(o=>o.value===actual)) selTurno.value = actual;
   }
+  // La sucursal solo se muestra si de verdad hay más de un dispositivo
+  // etiquetando ventas — para no meterle un filtro inútil a quien tiene un
+  // solo local y nunca configuró "Sucursal" en Configuración.
+  const selSuc = document.getElementById('rv-suc');
+  if (selSuc) {
+    const sucursales = [...new Set(db.ventas.map(v=>v.sucursal).filter(Boolean))].sort();
+    selSuc.style.display = sucursales.length ? '' : 'none';
+    const actual = selSuc.value;
+    selSuc.innerHTML = '<option value="">Todas las sucursales</option>' +
+      sucursales.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('');
+    if (sucursales.includes(actual)) selSuc.value = actual;
+  }
 }
 
 function renderReportes() {
@@ -6100,12 +6449,116 @@ function renderReportes() {
   const tot  = vs.reduce((s,v)=>s+v.total,0);
   const cost = vs.reduce((s,v)=>s+v.items.reduce((ss,i)=>ss+(i.costo||0)*i.qty,0),0);
   const gan  = tot-cost;
+  const fiado = vs.filter(v=>v.metodo==='fiado').reduce((s,v)=>s+v.total,0);
   document.getElementById('r-vtot').textContent = mxn(tot);
   document.getElementById('r-costo').textContent= mxn(cost);
   document.getElementById('r-gan').textContent  = mxn(gan);
   document.getElementById('r-marg').textContent = (tot?((gan/tot)*100):0).toFixed(1)+'%';
   document.getElementById('r-vn').textContent   = vs.length+' ticket'+(vs.length!==1?'s':'');
+  document.getElementById('r-fiado').textContent = mxn(fiado);
   renderBarChart();
+  renderRentabilidad();
+}
+
+// ══════════════════════════════════════════════════════════
+//  ALERTAS DE INVENTARIO (stock bajo / por caducar) — usadas tanto por la
+//  campanita 🔔 del topbar como por la pestaña Rentabilidad de Reportes, así
+//  que viven en un solo lugar para no calcular lo mismo dos veces distinto.
+// ══════════════════════════════════════════════════════════
+function getAlertasInventario() {
+  const stockBajo = db.productos.filter(p => Number(p.stockmin) > 0 && Number(p.stock) <= Number(p.stockmin));
+  const porVencer = db.productos.filter(p => p.vence && isExpiringSoon(p.vence));
+  return { stockBajo, porVencer };
+}
+
+function actualizarAlertBell() {
+  const { stockBajo, porVencer } = getAlertasInventario();
+  const n = stockBajo.length + porVencer.length;
+  const dot = document.getElementById('alert-bell-count');
+  if (!dot) return;
+  if (n > 0) { dot.textContent = n > 99 ? '99+' : String(n); dot.style.display = 'inline-flex'; }
+  else dot.style.display = 'none';
+}
+
+function mostrarAlertas() {
+  const { stockBajo, porVencer } = getAlertasInventario();
+  if (!stockBajo.length && !porVencer.length) {
+    mostrarInfoModal('🔔 Alertas', `<p style="color:var(--txt2)">Sin alertas por ahora — stock e inventario al día 🎉</p>`);
+    return;
+  }
+  let html = '';
+  if (stockBajo.length) {
+    html += `<p><strong>⚠️ Stock bajo (${stockBajo.length})</strong></p><ul style="margin:6px 0 14px;padding-left:18px;font-size:13px">` +
+      stockBajo.map(p=>`<li>${esc(p.nombre)} — quedan ${p.stock} (mínimo ${p.stockmin})</li>`).join('') + `</ul>`;
+  }
+  if (porVencer.length) {
+    html += `<p><strong>⏳ Por caducar (${porVencer.length})</strong></p><ul style="margin:6px 0;padding-left:18px;font-size:13px">` +
+      porVencer.map(p=>`<li>${esc(p.nombre)} — vence ${esc(p.vence)}</li>`).join('') + `</ul>`;
+  }
+  mostrarInfoModal('🔔 Alertas', html);
+}
+
+// ══════════════════════════════════════════════════════════
+//  RENTABILIDAD, ROTACIÓN Y ALERTAS — pestaña "Rentabilidad" de Reportes.
+// ══════════════════════════════════════════════════════════
+function renderRentabilidad() {
+  const vs = getVentasFiltradas();
+  const map = {};
+  vs.forEach(v=>v.items.forEach(i=>{
+    if (!map[i.barcode]) map[i.barcode] = { nombre:i.nombre, qty:0, ingreso:0, costo:0 };
+    map[i.barcode].qty += i.qty;
+    map[i.barcode].ingreso += i.precio*i.qty;
+    map[i.barcode].costo += (i.costo||0)*i.qty;
+  }));
+  const prods = Object.values(map)
+    .map(p=>({ ...p, margen: p.ingreso-p.costo, margenPct: p.ingreso ? (p.ingreso-p.costo)/p.ingreso*100 : 0 }))
+    .sort((a,b)=>b.margen-a.margen);
+  const tbodyRent = document.getElementById('rrent-tbody');
+  if (tbodyRent) {
+    tbodyRent.innerHTML = prods.length ? prods.map(p=>`<tr>
+      <td>${esc(p.nombre)}</td>
+      <td style="font-family:var(--mono)">${p.qty}</td>
+      <td style="font-family:var(--mono)">${mxn(p.ingreso)}</td>
+      <td style="font-family:var(--mono)">${mxn(p.costo)}</td>
+      <td style="font-family:var(--mono);color:${p.margen>=0?'var(--verde)':'var(--rojo)'}">${mxn(p.margen)}</td>
+      <td style="font-family:var(--mono)">${p.margenPct.toFixed(1)}%</td>
+    </tr>`).join('') : `<tr><td colspan="6" style="text-align:center;color:var(--txt2);padding:20px">Sin datos en este período</td></tr>`;
+  }
+
+  // Rotación: ventana fija de 30 días, independiente del filtro de período de
+  // arriba, para que "días de inventario" siempre signifique lo mismo.
+  const tbodyRot = document.getElementById('rrot-tbody');
+  if (tbodyRot) {
+    const corte30 = new Date(Date.now()-30*86400000).toISOString();
+    const vendidos30 = {};
+    db.ventas.filter(v=>v.fecha>=corte30).forEach(v=>v.items.forEach(i=>{
+      vendidos30[i.barcode] = (vendidos30[i.barcode]||0) + i.qty;
+    }));
+    const rotacion = db.productos.filter(p=>p.stock>0).map(p=>{
+      const vendido = vendidos30[p.barcode]||0;
+      const diario = vendido/30;
+      return { ...p, vendido30: vendido, diasStock: diario>0 ? p.stock/diario : Infinity };
+    }).sort((a,b)=>a.diasStock-b.diasStock);
+    const filas = [...rotacion.filter(p=>p.diasStock!==Infinity).slice(0,10), ...rotacion.filter(p=>p.diasStock===Infinity).slice(0,10)];
+    tbodyRot.innerHTML = filas.length ? filas.map(p=>`<tr>
+      <td>${esc(p.nombre)}</td>
+      <td style="font-family:var(--mono)">${p.stock}</td>
+      <td style="font-family:var(--mono)">${p.vendido30}</td>
+      <td style="font-family:var(--mono)">${p.diasStock===Infinity?'Sin ventas (30d)':Math.round(p.diasStock)+' días'}</td>
+    </tr>`).join('') : `<tr><td colspan="4" style="text-align:center;color:var(--txt2);padding:20px">Sin productos con stock</td></tr>`;
+  }
+
+  const tbodyAl = document.getElementById('ralertas-tbody');
+  if (tbodyAl) {
+    const { stockBajo, porVencer } = getAlertasInventario();
+    const filas = [
+      ...stockBajo.map(p=>({ nombre:p.nombre, tipo:'⚠️ Stock bajo', detalle:`Quedan ${p.stock} (mínimo ${p.stockmin})` })),
+      ...porVencer.map(p=>({ nombre:p.nombre, tipo:'⏳ Por caducar', detalle:`Vence ${p.vence}` })),
+    ];
+    tbodyAl.innerHTML = filas.length ? filas.map(a=>`<tr>
+      <td>${esc(a.nombre)}</td><td>${a.tipo}</td><td style="font-size:12px;color:var(--txt2)">${esc(a.detalle)}</td>
+    </tr>`).join('') : `<tr><td colspan="3" style="text-align:center;color:var(--txt2);padding:20px">Sin alertas 🎉</td></tr>`;
+  }
 }
 
 function renderBarChart() {
@@ -6130,12 +6583,14 @@ function renderHistorial() {
   const emp  = document.getElementById('rv-emp').value;
   const folioTurno = document.getElementById('rv-turno').value;
   const turno = folioTurno ? db.cortes.find(c=>c.folio===folioTurno) : null;
+  const suc = document.getElementById('rv-suc')?.value || '';
   const vs   = [...db.ventas].reverse().filter(v=>{
     const mq = !q||(v.folio.toLowerCase().includes(q)||v.items.some(i=>i.nombre.toLowerCase().includes(q)));
     const mf = !fecha||v.fecha.startsWith(fecha);
     const me = !emp||(v.vendedor||'')===emp;
     const mt = !turno||(v.fecha>=turno.apertura&&v.fecha<=turno.cierre);
-    return mq&&mf&&me&&mt;
+    const ms = !suc||(v.sucursal||'')===suc;
+    return mq&&mf&&me&&mt&&ms;
   });
   const tbody = document.getElementById('rv-tbody');
   if (!vs.length) { tbody.innerHTML=`<tr><td colspan="7" style="text-align:center;color:var(--txt2);padding:20px">Sin ventas</td></tr>`; return; }
@@ -6144,7 +6599,7 @@ function renderHistorial() {
     <td><span class="badge badge-indigo">${v.folio}</span></td>
     <td>${v.items.length}</td>
     <td style="font:600 13px var(--mono);color:var(--verde)">${mxn(v.total)}</td>
-    <td><span class="badge badge-verde">${v.metodo}</span></td>
+    <td><span class="badge ${v.metodo==='fiado'?'badge-amber':'badge-verde'}">${v.metodo}</span></td>
     <td style="font-size:12px">${esc(v.vendedor)||'—'}</td>
     <td><button class="btn btn-ghost btn-sm" onclick="verVenta('${v.id}')">Ver</button></td>
   </tr>`).join('');
@@ -6187,8 +6642,8 @@ function renderTop() {
 
 function renderCortes() {
   const tbody=document.getElementById('rc-tbody');
-  if(!db.cortes.length){tbody.innerHTML=`<tr><td colspan="7" style="text-align:center;color:var(--txt2);padding:20px">Sin cortes</td></tr>`;return;}
-  tbody.innerHTML=[...db.cortes].reverse().map(c=>`<tr>
+  if(!db.cortes.length){tbody.innerHTML=`<tr><td colspan="7" style="text-align:center;color:var(--txt2);padding:20px">Sin cortes</td></tr>`;}
+  else tbody.innerHTML=[...db.cortes].reverse().map(c=>`<tr>
     <td style="font-size:11px">${new Date(c.apertura).toLocaleString('es-MX',{dateStyle:'short',timeStyle:'short'})}</td>
     <td style="font-size:11px">${new Date(c.cierre).toLocaleString('es-MX',{dateStyle:'short',timeStyle:'short'})}</td>
     <td style="font-size:12px">${esc(c.vendedor)||'—'}</td>
@@ -6197,6 +6652,31 @@ function renderCortes() {
     <td style="font-family:var(--mono);color:var(--rojo)">${mxn(c.egresos)}</td>
     <td style="font:600 14px var(--mono)">${mxn(c.saldoFinal)}</td>
   </tr>`).join('');
+  renderFaltantesPorVendedor();
+}
+
+// Suma TODOS los cortes históricos de cada vendedor (no solo el período de
+// Resumen) — un faltante aislado puede ser un mal día, pero uno que se repite
+// con la misma persona es un patrón que vale la pena revisar.
+function renderFaltantesPorVendedor() {
+  const el = document.getElementById('rc-faltantes');
+  if (!el) return;
+  const map = {};
+  db.cortes.forEach(c=>{
+    const key = c.vendedor || '—';
+    if (!map[key]) map[key] = { vendedor:key, cortes:0, conFaltante:0, totalFaltante:0 };
+    map[key].cortes++;
+    const f = Number(c.faltante)||0;
+    if (f > 0) { map[key].conFaltante++; map[key].totalFaltante += f; }
+  });
+  const filas = Object.values(map).sort((a,b)=>b.totalFaltante-a.totalFaltante);
+  el.innerHTML = filas.length ? filas.map(f=>`<tr>
+    <td>${esc(f.vendedor)}</td>
+    <td style="font-family:var(--mono)">${f.cortes}</td>
+    <td style="font-family:var(--mono)">${f.conFaltante}</td>
+    <td style="font-family:var(--mono);color:${f.totalFaltante>0?'var(--rojo)':'var(--txt2)'}">${mxn(f.totalFaltante)}</td>
+    <td style="font-family:var(--mono)">${mxn(f.conFaltante ? f.totalFaltante/f.conFaltante : 0)}</td>
+  </tr>`).join('') : `<tr><td colspan="5" style="text-align:center;color:var(--txt2);padding:20px">Sin cortes</td></tr>`;
 }
 
 // ══════════════════════════════════════════════════════════
