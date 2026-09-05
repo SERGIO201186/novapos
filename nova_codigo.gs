@@ -257,6 +257,59 @@ function getPins_() {
   };
 }
 
+function getConfigMap_() {
+  const rows = getSheet('config').getDataRange().getValues();
+  const map = {};
+  rows.slice(1).forEach(r => { if (r[0]) map[String(r[0])] = r[1]; });
+  return map;
+}
+
+// 🔔 Alertas de inventario (stock bajo / próximo a caducar) por correo — a
+// diferencia de la campanita dentro de NovaPOS, esto llega aunque nadie
+// tenga la app abierta, porque corre del lado de Google. No hace nada
+// (ni manda correo vacío) si no hay destinatario configurado o no hay nada
+// que avisar hoy. El destinatario se configura desde NovaPOS → Configuración
+// → Alertas (se guarda en la hoja "config" como cualquier otro dato del
+// negocio), o si no, cae al mismo correo del resumen de turno.
+function enviarAlertasDiarias() {
+  const cfgMap = getConfigMap_();
+  const destino = cfgMap.alertas_email || cfgMap.corte_email;
+  if (!destino) return;
+
+  const rows = getSheet('productos').getDataRange().getValues();
+  const headers = rows[0];
+  const productos = rows.slice(1).map(r => Object.fromEntries(headers.map((h,i)=>[h,r[i]])));
+
+  const stockBajo = productos.filter(p => Number(p.stockmin) > 0 && Number(p.stock) <= Number(p.stockmin));
+  const limite = new Date(Date.now() + 30*24*3600*1000);
+  const porVencer = productos.filter(p => p.vence && new Date(p.vence) <= limite);
+  if (!stockBajo.length && !porVencer.length) return;
+
+  let html = '<h2 style="font-family:sans-serif">🔔 Alertas NovaPOS — ' + new Date().toLocaleDateString('es-MX') + '</h2>';
+  if (stockBajo.length) {
+    html += '<p style="font-family:sans-serif"><b>⚠️ Stock bajo (' + stockBajo.length + ')</b></p><ul style="font-family:sans-serif">' +
+      stockBajo.map(p => '<li>' + p.nombre + ' — quedan ' + p.stock + ' (mínimo ' + p.stockmin + ')</li>').join('') + '</ul>';
+  }
+  if (porVencer.length) {
+    html += '<p style="font-family:sans-serif"><b>⏳ Por caducar en 30 días o menos (' + porVencer.length + ')</b></p><ul style="font-family:sans-serif">' +
+      porVencer.map(p => '<li>' + p.nombre + ' — vence ' + p.vence + '</li>').join('') + '</ul>';
+  }
+  MailApp.sendEmail({ to: destino, subject: 'Alertas NovaPOS — stock bajo y caducidad', htmlBody: html });
+}
+
+// Ejecuta ESTA función UNA sola vez desde el editor de Apps Script (▶ Ejecutar,
+// con "crearTriggerAlertasDiarias" seleccionado en el menú de funciones) para
+// que Google mande el correo de enviarAlertasDiarias() todos los días a las
+// 8am sin que nadie tenga que hacer nada más. Se puede volver a correr sin
+// problema — primero borra cualquier trigger anterior de la misma función
+// para no terminar con dos avisos duplicados cada día.
+function crearTriggerAlertasDiarias() {
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'enviarAlertasDiarias') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('enviarAlertasDiarias').timeBased().everyDays(1).atHour(8).create();
+}
+
 // Relevo genérico hacia la API de Mercado Pago — agrega el Authorization
 // Bearer con MP_ACCESS_TOKEN (Propiedades del script) y traduce cualquier
 // error HTTP de MP a {ok:false, error} en vez de dejar tronar el script.
@@ -288,13 +341,20 @@ function mpProxy_(method, path, payload, onOk) {
 // completo a mano (ensureHeaders_, que usa sync_all antes de escribir).
 const SHEET_HEADERS = {
   productos:   ['id','sku','barcode','nombre','cat','proveedor','precio','costo','stock','stockmin','vence','unidad','desc'],
-  ventas:      ['id','folio','fecha','items','subtotal','descuento','total','recibido','cambio','metodo','vendedor'],
-  movimientos: ['id','fecha','tipo','monto','concepto'],
+  ventas:      ['id','folio','fecha','items','subtotal','descuento','total','recibido','cambio','metodo','vendedor','clienteId','sucursal'],
+  movimientos: ['id','fecha','tipo','monto','concepto','sucursal'],
   facturas:    ['id','folio','ventaId','fecha','clienteNombre','clienteRFC','clienteEmail','clienteDir','usoCFDI','metodoPago','formaPago','subtotal','iva','total','estatus','cfdiUUID'],
   recargas:    ['id','folio','fecha','compania','modalidad','telefono','monto','comisionPct','gananciaEstimada','estatus','folioProveedor','metodoPago','mensaje'],
-  cortes:      ['apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','folio','codigoEmpleado','efectivoEsperado','efectivoContado','faltante'],
+  cortes:      ['apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','folio','codigoEmpleado','efectivoEsperado','efectivoContado','faltante','sucursal','fiadoCount','fiadoTotal'],
   vendedores:  ['id','nombre','codigoEmpleado'],
   config:      ['key','value'],
+  // Clientes para venta a crédito ("fiado") — "saldo" es lo que debe
+  // actualmente, "limiteCredito" es informativo (el checkout no lo bloquea,
+  // solo lo usa NovaPOS para avisar). "clientes_movs" son solo los abonos
+  // (pagos a cuenta); las ventas a crédito ya quedan en "ventas" con su
+  // propio clienteId, no hace falta duplicarlas aquí.
+  clientes:      ['id','nombre','telefono','email','saldo','limiteCredito','notas'],
+  clientes_movs: ['id','clienteId','fecha','monto','concepto'],
   // Kardex de entradas de mercancía — separado de "movimientos" (que es
   // dinero, ingresos/egresos de caja) para poder comparar entradas vs.
   // ventas vs. conteo físico y saber si una merma es real o solo mal
