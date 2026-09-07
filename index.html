@@ -869,6 +869,7 @@ body.modo-sucursal .admin-only{display:none!important}
       <div id="caja-open" style="display:none">
         <p style="font-size:13px;color:var(--txt2);margin-bottom:14px">Caja abierta. Registra movimientos y cierra al finalizar el turno.</p>
         <button class="btn btn-danger btn-full" onclick="cerrarCaja()">⏹ Cerrar caja y generar corte</button>
+        <button class="btn btn-ghost btn-full admin-only" style="margin-top:8px;font-size:12px" onclick="cancelarAperturaCaja()">✖ Cancelar esta apertura (no genera corte)</button>
       </div>
     </div>
     <div class="card">
@@ -3970,6 +3971,12 @@ async function guardarConfigSheets() {
   // en vez de dejar la base vacía hasta que alguien le dé "Sincronizar ahora"
   // (lo cual, sin esto, terminaría subiendo vacío y borrando la hoja).
   if (cfg.url && !db.productos.length && !db.ventas.length) {
+    // Si el dispositivo no tenía nada capturado, lo único que podía haber en
+    // "caja" era la apertura de demostración (ver loadDemoData: se abre sola
+    // con fondo $1,500 desde las 8:00 a.m.) — si se deja así, en cuanto bajen
+    // las ventas reales de Sheets, el resumen del turno las suma TODAS desde
+    // esa apertura vieja, dando montos gigantes que no corresponden a nada.
+    db.caja = {abierta:false, fondo:0, fechaApertura:null};
     const ok = await cargarDeSheets();
     if (ok) refrescarVistasTrasDescarga();
   }
@@ -5867,6 +5874,11 @@ function aplicarVinculacionPorQR() {
   db.productos = []; db.ventas = []; db.movimientos = []; db.facturas = [];
   db.cortes = []; db.recargas = []; db.clientes = []; db.clientesMovs = [];
   db.recargasMP = []; db.entradasInventario = []; db.turnos = [];
+  // Igual que en guardarConfigSheets(): descarta cualquier apertura de caja
+  // que hubiera quedado de antes de vincular (típicamente la de demo) — si
+  // no, el resumen del turno sumaría de golpe todas las ventas reales que
+  // se descarguen a continuación, desde esa apertura vieja.
+  db.caja = {abierta:false, fondo:0, fechaApertura:null};
   save();
   saveCfg();
   history.replaceState({}, '', location.pathname);
@@ -6115,6 +6127,23 @@ async function abrirCaja() {
     console.error('[NovaPOS] Error al abrir caja:', err);
     toast('No se pudo abrir la caja: ' + err.message, 'err');
   }
+}
+
+// Válvula de escape para cuando la caja quedó "abierta" por error y no
+// corresponde a un turno real (p.ej. la apertura de demostración que se
+// crea sola en un dispositivo nuevo antes de conectar Google Sheets, o una
+// apertura vieja que nadie cerró) — a diferencia de Cerrar caja, esto NO
+// calcula nada ni genera ningún corte, solo descarta el estado local.
+async function cancelarAperturaCaja() {
+  if (bloqueadoEnSucursal()) return;
+  if (!db.caja.abierta) return;
+  if (!confirm('¿Cancelar esta apertura de caja SIN generar corte? Úsalo solo si se abrió por error (por ejemplo, quedó abierta desde hace días o es la apertura de demostración) — no quedará ningún registro de este "cierre".')) return;
+  db.caja = {abierta:false, fondo:0, fechaApertura:null};
+  save();
+  document.getElementById('caja-closed').style.display='block';
+  document.getElementById('caja-open').style.display='none';
+  updateBadge(); renderCaja();
+  toast('Apertura cancelada — no se generó ningún corte', 'warn');
 }
 
 // Junta los movimientos/ventas/recargas de ESTE turno (acotados a
