@@ -345,7 +345,14 @@ const SHEET_HEADERS = {
   movimientos: ['id','fecha','tipo','monto','concepto','sucursal'],
   facturas:    ['id','folio','ventaId','fecha','clienteNombre','clienteRFC','clienteEmail','clienteDir','usoCFDI','metodoPago','formaPago','subtotal','iva','total','estatus','cfdiUUID'],
   recargas:    ['id','folio','fecha','compania','modalidad','telefono','monto','comisionPct','gananciaEstimada','estatus','folioProveedor','metodoPago','mensaje'],
-  cortes:      ['apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','folio','codigoEmpleado','efectivoEsperado','efectivoContado','faltante','sucursal','fiadoCount','fiadoTotal','contAperturaBn','contAperturaColor','contAperturaImpBn','contAperturaImpColor','contCierreBn','contCierreColor','contCierreImpBn','contCierreImpColor'],
+  // ⚠️ "cortes" es la ÚNICA hoja de esta lista que no traía "id" — sin él,
+  // idCol quedaba en -1 en el upsert genérico de más abajo, y la comparación
+  // "r[-1] === data['key']" (ambos undefined) daba TRUE para cualquier fila,
+  // así que CADA cierre de caja sobreescribía la primera fila de datos en vez
+  // de agregar una nueva. Resultado: la hoja nunca acumulaba más de un corte
+  // a la vez. Con "id" agregado, el corte se identifica igual que cualquier
+  // otra hoja y cada cierre de caja sí agrega su propia fila.
+  cortes:      ['id','apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','folio','codigoEmpleado','efectivoEsperado','efectivoContado','faltante','sucursal','fiadoCount','fiadoTotal','contAperturaBn','contAperturaColor','contAperturaImpBn','contAperturaImpColor','contCierreBn','contCierreColor','contCierreImpBn','contCierreImpColor'],
   vendedores:  ['id','nombre','codigoEmpleado'],
   config:      ['key','value'],
   // Clientes para venta a crédito ("fiado") — "saldo" es lo que debe
@@ -355,6 +362,10 @@ const SHEET_HEADERS = {
   // propio clienteId, no hace falta duplicarlas aquí.
   clientes:      ['id','nombre','telefono','email','saldo','limiteCredito','notas'],
   clientes_movs: ['id','clienteId','fecha','monto','concepto'],
+  // Recargas hechas directo en la terminal física de Mercado Pago (fuera del
+  // flujo normal de "recargas" de NovaPOS) — se capturan a mano al cerrar
+  // caja porque la app no tiene forma de enterarse de esas operaciones.
+  recargas_mp: ['id','fecha','folioOTelefono','monto','comision','corteFolio','sucursal'],
   // Kardex de entradas de mercancía — separado de "movimientos" (que es
   // dinero, ingresos/egresos de caja) para poder comparar entradas vs.
   // ventas vs. conteo físico y saber si una merma es real o solo mal
