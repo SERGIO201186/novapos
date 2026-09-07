@@ -1490,6 +1490,15 @@ body.modo-sucursal .admin-only{display:none!important}
       </details>
     </div>
 
+    <div class="card" id="cfg-card-recargas-mp" style="display:none">
+      <div class="card-hd">📲 Recargas con terminal Mercado Pago</div>
+      <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Para las recargas que se hacen directo en la terminal física de Mercado Pago (fuera de la pantalla de Recargas de arriba) — NovaPOS no se entera de esas operaciones, así que se capturan a mano al cerrar caja: folio o teléfono, monto de la recarga y comisión cobrada. La comisión se suma al total que hay que entregar al administrador junto con los tickets físicos de la terminal; el monto de la recarga solo es informativo (ese dinero ya lo cobró la terminal por su cuenta).</p>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px">
+        <input type="checkbox" id="cfg-control-recargas-mp" onchange="guardarControlRecargasMP(this.checked)" style="width:17px;height:17px;flex-shrink:0;padding:0;-webkit-appearance:checkbox;appearance:checkbox">
+        Activar captura de recargas de terminal al cerrar caja
+      </label>
+    </div>
+
     <div class="card" id="cfg-card-vendedores" style="display:none">
       <div class="card-hd">🧑‍💼 Vendedores</div>
       <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Da de alta a las personas que van a abrir caja, cada quien con su propio NIP y su código de empleado (el mismo que uses en tu otro sistema de nómina/bonos — el resumen de turno lo incluye en su código QR). Al abrir turno, cada vendedor ingresa su NIP (no se elige de una lista) — así queda registrado quién abrió/cerró realmente, y eso se pega a cada venta, al corte de caja del cierre y al ticket impreso. Si no das de alta a nadie, la caja se abre igual que antes, sin pedir NIP.</p>
@@ -1533,6 +1542,8 @@ body.modo-sucursal .admin-only{display:none!important}
         <strong>Copia INE B/N</strong> — $2.00<br>
         <strong>Copia B/N tamaño oficio</strong> — $2.00<br>
         <strong>Descarga e impresión B/N</strong> (CURP, constancia IMSS/ISSSTE) — $10.00<br>
+        <strong>Copia/impresión a color</strong> — $5.00<br>
+        <strong>Descarga e impresión a color</strong> (CURP, constancia IMSS/ISSSTE) — $10.00<br>
         <span style="color:var(--txt3)">Se venden desde Venta, categoría "Copias e impresiones" — ajusta los precios ahí mismo (Inventario) cuando quieras.</span>
       </div>
     </div>
@@ -1724,6 +1735,19 @@ body.modo-sucursal .admin-only{display:none!important}
       <div class="lbl">Diferencia</div>
       <div class="num" id="cierre-diferencia-num">$0.00</div>
     </div>
+
+    <div id="cierre-recargas-mp-field" style="display:none;margin-top:14px">
+      <p style="font-size:12px;color:var(--txt2);margin-bottom:8px">📲 Recargas hechas en la terminal MP este turno — captura cada ticket antes de cerrar (folio o teléfono, monto, comisión).</p>
+      <div style="display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:6px;margin-bottom:8px">
+        <input id="cierre-recmp-ident" placeholder="Folio o teléfono">
+        <input type="number" id="cierre-recmp-monto" min="0" step="0.01" placeholder="Monto">
+        <input type="number" id="cierre-recmp-comision" min="0" step="0.01" placeholder="Comisión">
+      </div>
+      <button class="btn btn-ghost btn-sm btn-full" onclick="agregarRecargaMPCierre()" style="margin-bottom:8px">+ Agregar recarga</button>
+      <div id="cierre-recmp-list"></div>
+      <p id="cierre-recmp-totales" style="font-size:12px;color:var(--txt2);font-weight:600;margin-top:6px"></p>
+    </div>
+
     <div style="display:flex;gap:8px;margin-top:14px">
       <button class="btn btn-ghost" style="flex:1" onclick="closeModal('modal-cierre-caja')">Cancelar</button>
       <button class="btn btn-danger btn-lg" style="flex:2" onclick="confirmarCierreCaja()">Cerrar caja</button>
@@ -2435,6 +2459,9 @@ function activarModoPro(lic) {
   const controlCopiasEl = document.getElementById('cfg-control-copias');
   if (controlCopiasEl) controlCopiasEl.checked = !!cfg.controlCopias;
 
+  const controlRecargasMPEl = document.getElementById('cfg-control-recargas-mp');
+  if (controlRecargasMPEl) controlRecargasMPEl.checked = !!cfg.controlRecargasMP;
+
   const mpDeviceEl = document.getElementById('cfg-mp-device-id');
   if (mpDeviceEl) mpDeviceEl.value = cfg.mpDeviceId || '';
 
@@ -2443,7 +2470,7 @@ function activarModoPro(lic) {
   // vista con una licencia que dejó de calificar (ej. se le cambió el tier),
   // se le regresa a Ventas.
   const puedeRecargas = tieneRecargas();
-  document.querySelectorAll('#dnav-recargas, #bnav-recargas, #cfg-card-recargas, #cierre-recargas-box').forEach(el => {
+  document.querySelectorAll('#dnav-recargas, #bnav-recargas, #cfg-card-recargas, #cierre-recargas-box, #cfg-card-recargas-mp').forEach(el => {
     el.style.display = puedeRecargas ? '' : 'none';
   });
   if (!puedeRecargas && document.getElementById('view-recargas')?.classList.contains('active')) {
@@ -2844,6 +2871,10 @@ const SHEET_HEADERS = {
   // propio clienteId, no hace falta duplicarlas aquí.
   clientes:      ['id','nombre','telefono','email','saldo','limiteCredito','notas'],
   clientes_movs: ['id','clienteId','fecha','monto','concepto'],
+  // Recargas hechas directo en la terminal física de Mercado Pago (fuera del
+  // flujo normal de "recargas" de NovaPOS) — se capturan a mano al cerrar
+  // caja porque la app no tiene forma de enterarse de esas operaciones.
+  recargas_mp: ['id','fecha','folioOTelefono','monto','comision','corteFolio','sucursal'],
 };
 
 function getSheet(name) {
@@ -2913,11 +2944,11 @@ async function copyScript() {
 // ══════════════════════════════════════════════════════════
 //  STATE
 // ══════════════════════════════════════════════════════════
-let db = { productos:[], ventas:[], movimientos:[], facturas:[], caja:{abierta:false,fondo:0,fechaApertura:null}, cortes:[], recargas:[], vendedores:[], entradasInventario:[], turnos:[], clientes:[], clientesMovs:[] };
+let db = { productos:[], ventas:[], movimientos:[], facturas:[], caja:{abierta:false,fondo:0,fechaApertura:null}, cortes:[], recargas:[], vendedores:[], entradasInventario:[], turnos:[], clientes:[], clientesMovs:[], recargasMP:[] };
 // mpDeviceId: a propósito NO se sube nunca a guardarConfigEnSheets() —
 // identifica la terminal física Point pareada con ESTE dispositivo/caja,
 // que puede ser distinta en cada tablet si el negocio tiene varias.
-let cfg = { url:'', syncSecret:'', nombre:'NovaPOS Demo', rfc:'', tel:'', dir:'', giro:'generico', iva:16, logo:'', ticketAncho:'80', rechargeComision:6, invPin:'', ownerPin:'', corteEmail:'', mpDeviceId:'', recargaComisionFija:2, recargaModalidades:{}, recargaTelefonoSoporte:{}, recargaModoManual:false, sucursal:'', alertasEmail:'', rolDispositivo:'admin', controlCopias:false };
+let cfg = { url:'', syncSecret:'', nombre:'NovaPOS Demo', rfc:'', tel:'', dir:'', giro:'generico', iva:16, logo:'', ticketAncho:'80', rechargeComision:6, invPin:'', ownerPin:'', corteEmail:'', mpDeviceId:'', recargaComisionFija:2, recargaModalidades:{}, recargaTelefonoSoporte:{}, recargaModoManual:false, sucursal:'', alertasEmail:'', rolDispositivo:'admin', controlCopias:false, controlRecargasMP:false };
 let ticket = [];
 let editProdId = null;
 let syncing = false;
@@ -2949,6 +2980,7 @@ function load() {
   if (!db.turnos) db.turnos = [];
   if (!db.clientes) db.clientes = [];
   if (!db.clientesMovs) db.clientesMovs = [];
+  if (!db.recargasMP) db.recargasMP = [];
   if (!db.caja) db.caja = {abierta:false,fondo:0,fechaApertura:null};
 }
 
@@ -3048,10 +3080,12 @@ function getGiro() { return GIROS[cfg.giro] || GIROS.generico; }
 //  Inventario como cualquier otro producto.
 // ══════════════════════════════════════════════════════════
 const SERVICIOS_COPIAS = [
-  { barcode:'SERV-COPIA-BN-CARTA',   nombre:'Copia B/N carta',      precio:1,  unidad:'copia' },
-  { barcode:'SERV-COPIA-INE-BN',     nombre:'Copia INE B/N',        precio:2,  unidad:'copia' },
-  { barcode:'SERV-COPIA-BN-OFICIO',  nombre:'Copia B/N oficio',     precio:2,  unidad:'copia' },
-  { barcode:'SERV-IMPRESION-BN-DOC', nombre:'Descarga e impresión B/N (CURP, IMSS, ISSSTE)', precio:10, unidad:'documento' },
+  { barcode:'SERV-COPIA-BN-CARTA',      nombre:'Copia B/N carta',      precio:1,  unidad:'copia' },
+  { barcode:'SERV-COPIA-INE-BN',        nombre:'Copia INE B/N',        precio:2,  unidad:'copia' },
+  { barcode:'SERV-COPIA-BN-OFICIO',     nombre:'Copia B/N oficio',     precio:2,  unidad:'copia' },
+  { barcode:'SERV-IMPRESION-BN-DOC',    nombre:'Descarga e impresión B/N (CURP, IMSS, ISSSTE)', precio:10, unidad:'documento' },
+  { barcode:'SERV-COPIA-COLOR',         nombre:'Copia/impresión a color', precio:5, unidad:'copia' },
+  { barcode:'SERV-IMPRESION-COLOR-DOC', nombre:'Descarga e impresión a color (CURP, IMSS, ISSSTE)', precio:10, unidad:'documento' },
 ];
 
 function sembrarServiciosCopias() {
@@ -3076,6 +3110,20 @@ function guardarControlCopias(activo) {
   actualizarCamposContadorImpresora();
   if (cfg.url) sheetsPost({ action:'upsert', sheet:'config', data:{key:'control_copias', value: activo ? '1' : '0'} });
   toast(activo ? 'Copias e impresiones activadas ✓' : 'Copias e impresiones desactivadas', activo ? 'ok' : 'warn');
+}
+
+// ══════════════════════════════════════════════════════════
+//  RECARGAS CON TERMINAL DE MERCADO PAGO — captura manual al cierre de caja
+//  de las recargas que se hicieron directo en la terminal física (fuera del
+//  flujo normal de "Recargas" de NovaPOS, que no se entera de esas
+//  operaciones). Igual que "Copias e impresiones", es una decisión del
+//  negocio (se sincroniza en "config"), no de un solo dispositivo.
+// ══════════════════════════════════════════════════════════
+function guardarControlRecargasMP(activo) {
+  cfg.controlRecargasMP = activo;
+  saveCfg();
+  if (cfg.url) sheetsPost({ action:'upsert', sheet:'config', data:{key:'control_recargas_mp', value: activo ? '1' : '0'} });
+  toast(activo ? 'Captura de recargas por terminal activada ✓' : 'Captura de recargas por terminal desactivada', activo ? 'ok' : 'warn');
 }
 
 // ══════════════════════════════════════════════════════════
@@ -3595,6 +3643,7 @@ async function syncNow() {
         turnos: (db.turnos || []).map(t => ({ ...t, vendedorIds: JSON.stringify(vendedorIdsACodigos(t.vendedorIds||[])) })),
         clientes: db.clientes || [],
         clientes_movs: db.clientesMovs || [],
+        recargas_mp: db.recargasMP || [],
       }
     });
     const ok = !!(res && res.ok);
@@ -3619,10 +3668,11 @@ const CAMPOS_NUMERICOS_SHEET = {
   movimientos: ['monto'],
   facturas:    ['subtotal','iva','total'],
   recargas:    ['monto','comisionPct','gananciaEstimada'],
-  cortes:      ['fondo','ingresos','egresos','saldoFinal','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','efectivoEsperado','efectivoContado','faltante','fiadoCount','fiadoTotal','contAperturaBn','contAperturaColor','contAperturaImpBn','contAperturaImpColor','contCierreBn','contCierreColor','contCierreImpBn','contCierreImpColor'],
+  cortes:      ['fondo','ingresos','egresos','saldoFinal','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','efectivoEsperado','efectivoContado','faltante','fiadoCount','fiadoTotal','contAperturaBn','contAperturaColor','contAperturaImpBn','contAperturaImpColor','contCierreBn','contCierreColor','contCierreImpBn','contCierreImpColor','recargasMPCount','recargasMPMontoTotal','recargasMPComisionTotal'],
   vendedores:  [],
   entradas_inventario: ['cantidad','stockAntes','stockDespues'],
   turnos: [],
+  recargas_mp: ['monto','comision'],
   clientes: ['saldo','limiteCredito'],
   clientes_movs: ['monto'],
 };
@@ -3659,11 +3709,11 @@ async function cargarDeSheets(avisar = true, completo = false) {
   if (!cfg.url) return false;
   setSyncState('syncing');
   try {
-    const [productos, ventasRaw, movimientos, facturas, cortes, recargas, vendedores, entradasInv, turnosRaw, clientesRaw, clientesMovsRaw, configRaw, pins] = await Promise.all([
+    const [productos, ventasRaw, movimientos, facturas, cortes, recargas, vendedores, entradasInv, turnosRaw, clientesRaw, clientesMovsRaw, recargasMPRaw, configRaw, pins] = await Promise.all([
       sheetsGet('productos'), sheetsGet('ventas', completo ? {} : {dias: DIAS_HISTORIAL_SYNC}), sheetsGet('movimientos'),
       sheetsGet('facturas'), sheetsGet('cortes'), sheetsGet('recargas'), sheetsGet('vendedores'),
       sheetsGet('entradas_inventario'), sheetsGet('turnos'),
-      sheetsGet('clientes'), sheetsGet('clientes_movs'),
+      sheetsGet('clientes'), sheetsGet('clientes_movs'), sheetsGet('recargas_mp'),
       sheetsGet('config'), sheetsGetPins(),
     ]);
     if (productos === null) throw new Error('Sin respuesta del Apps Script');
@@ -3698,6 +3748,7 @@ async function cargarDeSheets(avisar = true, completo = false) {
     });
     db.clientes = normalizarFilasSheet('clientes', clientesRaw);
     db.clientesMovs = normalizarFilasSheet('clientes_movs', clientesMovsRaw);
+    db.recargasMP = normalizarFilasSheet('recargas_mp', recargasMPRaw);
     save();
 
     // Trae también los datos del negocio que guardarConfigEnSheets() sube —
@@ -3713,6 +3764,7 @@ async function cargarDeSheets(avisar = true, completo = false) {
     if ('corte_email'    in configMap) cfg.corteEmail = String(configMap.corte_email||'');
     if ('alertas_email'  in configMap) cfg.alertasEmail = String(configMap.alertas_email||'');
     if ('control_copias' in configMap) cfg.controlCopias = configMap.control_copias === '1' || configMap.control_copias === true;
+    if ('control_recargas_mp' in configMap) cfg.controlRecargasMP = configMap.control_recargas_mp === '1' || configMap.control_recargas_mp === true;
     if (pins) { cfg.ownerPin = pins.ownerPin || ''; cfg.invPin = pins.invPin || ''; }
     saveCfg();
     if (cfg.controlCopias) sembrarServiciosCopias();
@@ -3855,6 +3907,7 @@ async function guardarConfigEnSheets() {
     {key:'corte_email',    value:cfg.corteEmail||''},
     {key:'alertas_email',  value:cfg.alertasEmail||''},
     {key:'control_copias', value:cfg.controlCopias ? '1' : '0'},
+    {key:'control_recargas_mp', value:cfg.controlRecargasMP ? '1' : '0'},
     {key:'version',        value:'PRO-2.0'},
     {key:'ultima_sync',    value:new Date().toISOString()},
   ];
@@ -5808,6 +5861,26 @@ function buildCorteHTML(corte) {
   const otrosIngresos = Math.max(0, corte.ingresos - corte.ventasTotal - corte.recargasTotal);
   const tieneContadores = corte.contCierreBn !== undefined && corte.contCierreBn !== '';
   const usoContador = (aper, cierre) => (aper!==''&&aper!=null && cierre!==''&&cierre!=null) ? (cierre-aper) : '—';
+
+  // Desglose de copias/impresiones vendidas en el turno — se recalcula aquí
+  // mismo desde db.ventas (por fecha, dentro de la ventana del corte) en vez
+  // de guardarse en el corte, porque solo hace falta al momento de imprimir.
+  let desgloseCopias = [];
+  if (cfg.controlCopias) {
+    const barcodesCopias = new Set(SERVICIOS_COPIAS.map(s => s.barcode));
+    const mapa = {};
+    db.ventas.filter(v => v.fecha >= corte.apertura && v.fecha <= corte.cierre).forEach(v => v.items.forEach(i => {
+      if (!barcodesCopias.has(i.barcode)) return;
+      if (!mapa[i.barcode]) mapa[i.barcode] = { nombre: i.nombre, qty: 0, total: 0 };
+      mapa[i.barcode].qty += i.qty;
+      mapa[i.barcode].total += i.precio * i.qty;
+    }));
+    desgloseCopias = Object.values(mapa);
+  }
+
+  const tieneRecargasMP = corte.recargasMPComisionTotal !== undefined;
+  const totalAEntregar = (corte.recargasMPComisionTotal || 0) + corte.ventasTotal;
+
   return `
     <div style="text-align:center;font-weight:700;font-size:15px;letter-spacing:1px;margin-bottom:2px">${negocio.toUpperCase()}</div>
     <div style="text-align:center;font-size:12px;color:#555;margin-bottom:6px">RESUMEN DE TURNO</div>
@@ -5839,6 +5912,22 @@ function buildCorteHTML(corte) {
     ${row('Copias color', usoContador(corte.contAperturaColor, corte.contCierreColor), 'font-size:11px')}
     ${row('Impresiones B/N', usoContador(corte.contAperturaImpBn, corte.contCierreImpBn), 'font-size:11px')}
     ${row('Impresiones color', usoContador(corte.contAperturaImpColor, corte.contCierreImpColor), 'font-size:11px')}
+    ` : ''}
+    ${desgloseCopias.length ? `
+    <div style="border-top:1px dashed #999;margin:6px 0"></div>
+    <div style="font-size:11px;font-weight:700;margin-bottom:2px">🖨️ COPIAS E IMPRESIONES VENDIDAS</div>
+    ${desgloseCopias.map(d => row(`&nbsp;&nbsp;${esc(d.nombre)} (${d.qty})`, mxn(d.total), 'font-size:11px;color:#555')).join('')}
+    ` : ''}
+    ${tieneRecargasMP ? `
+    <div style="border-top:1px dashed #999;margin:6px 0"></div>
+    <div style="font-size:11px;font-weight:700;margin-bottom:2px">📲 RECARGAS CON TERMINAL MP</div>
+    ${row(`Venta recargas (${corte.recargasMPCount})`, mxn(corte.recargasMPMontoTotal), 'font-size:11px')}
+    ${row('Comisión de recargas', mxn(corte.recargasMPComisionTotal), 'font-size:11px')}
+    ${row('Venta otros productos', mxn(corte.ventasTotal), 'font-size:11px')}
+    <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;margin-top:4px">
+      <span>TOTAL A ENTREGAR</span><span>${mxn(totalAEntregar)}</span>
+    </div>
+    <div style="font-size:9px;color:#999;margin-top:2px">Junto con este ticket y los tickets de la terminal.</div>
     ` : ''}
     <div style="border-top:1px dashed #999;margin:8px 0"></div>
     <div style="text-align:center;font-size:10px;color:#999;margin-bottom:6px">Folio: ${esc(corte.folio)}${corte.codigoEmpleado ? ' · '+esc(corte.codigoEmpleado) : ''}</div>
@@ -6051,8 +6140,62 @@ function cerrarCaja() {
   ['cierre-cont-bn','cierre-cont-color','cierre-cont-imp-bn','cierre-cont-imp-color'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
+  // Recargas de terminal MP: lista nueva en blanco cada vez que se abre el
+  // modal — se captura completa de una sola vez, aquí, cada cierre de caja.
+  cierreRecargasMP = [];
+  const recmpField = document.getElementById('cierre-recargas-mp-field');
+  if (recmpField) recmpField.style.display = cfg.controlRecargasMP ? 'block' : 'none';
+  renderRecargasMPCierre();
   openModal('modal-cierre-caja');
   setTimeout(() => contadoEl.focus(), 50);
+}
+
+// ══════════════════════════════════════════════════════════
+//  RECARGAS DE TERMINAL MP — captura repetible dentro del modal de cierre de
+//  caja (ver cierre-recargas-mp-field). cierreRecargasMP vive solo mientras
+//  el modal está abierto; confirmarCierreCaja() la vuelca al corte y a
+//  db.recargasMP (para que quede el registro individual de cada operación,
+//  no solo el total agregado).
+// ══════════════════════════════════════════════════════════
+let cierreRecargasMP = [];
+
+function agregarRecargaMPCierre() {
+  const identEl = document.getElementById('cierre-recmp-ident');
+  const montoEl = document.getElementById('cierre-recmp-monto');
+  const comisionEl = document.getElementById('cierre-recmp-comision');
+  const ident = identEl.value.trim();
+  const monto = parseFloat(montoEl.value);
+  const comision = parseFloat(comisionEl.value);
+  if (!ident) { toast('Captura el folio o el teléfono de la recarga','warn'); return; }
+  if (isNaN(monto) || monto <= 0) { toast('Monto de recarga inválido','err'); return; }
+  if (isNaN(comision) || comision < 0) { toast('Comisión inválida','err'); return; }
+  cierreRecargasMP.push({ id: uid(), ident, monto, comision });
+  identEl.value = ''; montoEl.value = ''; comisionEl.value = '';
+  renderRecargasMPCierre();
+  identEl.focus();
+}
+
+function quitarRecargaMPCierre(id) {
+  cierreRecargasMP = cierreRecargasMP.filter(r => r.id !== id);
+  renderRecargasMPCierre();
+}
+
+function renderRecargasMPCierre() {
+  const list = document.getElementById('cierre-recmp-list');
+  if (!list) return;
+  list.innerHTML = cierreRecargasMP.length ? cierreRecargasMP.map(r => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-top:1px solid var(--border);gap:6px;font-size:12px">
+      <span>${esc(r.ident)} · ${mxn(r.monto)} <span style="color:var(--txt2)">(com. ${mxn(r.comision)})</span></span>
+      <button class="btn btn-ghost btn-sm" onclick="quitarRecargaMPCierre('${r.id}')">✕</button>
+    </div>`).join('') : '';
+  const montoTotal = cierreRecargasMP.reduce((s,r)=>s+r.monto,0);
+  const comisionTotal = cierreRecargasMP.reduce((s,r)=>s+r.comision,0);
+  const totalesEl = document.getElementById('cierre-recmp-totales');
+  if (totalesEl) {
+    totalesEl.textContent = cierreRecargasMP.length
+      ? `${cierreRecargasMP.length} recarga${cierreRecargasMP.length!==1?'s':''} · ${mxn(montoTotal)} + comisión ${mxn(comisionTotal)}`
+      : 'Sin recargas de terminal capturadas todavía.';
+  }
 }
 
 // Muestra/oculta los 4 campos de contador de impresora (apertura y cierre de
@@ -6124,6 +6267,17 @@ async function confirmarCierreCaja() {
     corte.contCierreImpBn = contadoresCierre.impBn;
     corte.contCierreImpColor = contadoresCierre.impColor;
   }
+  // Recargas de terminal MP capturadas en este mismo modal (ver
+  // agregarRecargaMPCierre()) — el total de comisión se suma al corte para
+  // el desglose "total a entregar" del ticket (ver buildCorteHTML()); cada
+  // operación además queda como su propio registro en db.recargasMP, por si
+  // hace falta consultarla después sin depender del ticket de papel.
+  const recargasMPEntradas = cierreRecargasMP.slice();
+  if (cfg.controlRecargasMP && recargasMPEntradas.length) {
+    corte.recargasMPCount = recargasMPEntradas.length;
+    corte.recargasMPMontoTotal = recargasMPEntradas.reduce((s,r)=>s+r.monto,0);
+    corte.recargasMPComisionTotal = recargasMPEntradas.reduce((s,r)=>s+r.comision,0);
+  }
   db.cortes.push(corte);
   db.caja = {abierta:false,fondo:0,fechaApertura:null};
   closeModal('modal-cierre-caja');
@@ -6133,6 +6287,12 @@ async function confirmarCierreCaja() {
   // con el toque del usuario) y bloquearlo en silencio. La sincronización
   // del corte se manda en segundo plano justo después.
   saveAndSyncFast('cortes', corte);
+  recargasMPEntradas.forEach(r => {
+    const registro = { id:r.id, fecha:new Date().toISOString(), folioOTelefono:r.ident, monto:r.monto, comision:r.comision, corteFolio:folio, sucursal: cfg.sucursal||'' };
+    db.recargasMP.push(registro);
+    saveAndSyncFast('recargas_mp', registro);
+  });
+  cierreRecargasMP = [];
   document.getElementById('caja-closed').style.display='block';
   document.getElementById('caja-open').style.display='none';
   updateBadge(); renderCaja();

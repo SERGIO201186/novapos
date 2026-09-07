@@ -355,6 +355,10 @@ const SHEET_HEADERS = {
   // propio clienteId, no hace falta duplicarlas aquí.
   clientes:      ['id','nombre','telefono','email','saldo','limiteCredito','notas'],
   clientes_movs: ['id','clienteId','fecha','monto','concepto'],
+  // Recargas hechas directo en la terminal física de Mercado Pago (fuera del
+  // flujo normal de "recargas" de NovaPOS) — se capturan a mano al cerrar
+  // caja porque la app no tiene forma de enterarse de esas operaciones.
+  recargas_mp: ['id','fecha','folioOTelefono','monto','comision','corteFolio','sucursal'],
   // Kardex de entradas de mercancía — separado de "movimientos" (que es
   // dinero, ingresos/egresos de caja) para poder comparar entradas vs.
   // ventas vs. conteo físico y saber si una merma es real o solo mal
