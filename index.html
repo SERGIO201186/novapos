@@ -548,6 +548,10 @@ input:checked+.toggle-slider::before{transform:translateX(20px)}
 
 /* ══ DIVIDER ══ */
 hr{border:none;border-top:1px solid var(--border);margin:12px 0}
+/* Modo Sucursal (ver cfg.rolDispositivo): oculta acciones que borran o
+   reemplazan información en el dispositivo del negocio, sin tocar el
+   dispositivo del dueño (rolDispositivo:'admin', default). */
+body.modo-sucursal .admin-only{display:none!important}
 
 /* ══ RESPONSIVE BREAKPOINTS ══ ════════════════ */
 
@@ -754,7 +758,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
   <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
     <h2 style="font:700 1.1rem var(--sans)" id="inv-view-title">📦 Inventario</h2>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn btn-ghost btn-sm" onclick="fusionarDuplicados()">🔀 Fusionar duplicados</button>
+      <button class="btn btn-ghost btn-sm admin-only" onclick="fusionarDuplicados()">🔀 Fusionar duplicados</button>
       <button class="btn btn-ghost btn-sm" onclick="exportCSV()">⬇ CSV</button>
       <button class="btn btn-primary" id="btn-nuevo-prod" onclick="openProdModal()">+ Nuevo producto</button>
     </div>
@@ -846,6 +850,15 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
         <div class="field">
           <label>Fondo inicial ($)</label>
           <input type="number" id="caja-fondo" value="300" min="0">
+        </div>
+        <div id="caja-contadores-field" style="display:none">
+          <p style="font-size:12px;color:var(--txt2);margin-bottom:8px">🖨️ Contador actual de la impresora (antes de vender nada este turno) — una vez que abras la caja, ya no se puede editar.</p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+            <div class="field" style="margin:0"><label>Copias B/N</label><input type="number" id="caja-cont-bn" min="0" placeholder="0"></div>
+            <div class="field" style="margin:0"><label>Copias color</label><input type="number" id="caja-cont-color" min="0" placeholder="0"></div>
+            <div class="field" style="margin:0"><label>Impresiones B/N</label><input type="number" id="caja-cont-imp-bn" min="0" placeholder="0"></div>
+            <div class="field" style="margin:0"><label>Impresiones color</label><input type="number" id="caja-cont-imp-color" min="0" placeholder="0"></div>
+          </div>
         </div>
         <button class="btn btn-primary btn-full" onclick="abrirCaja()">▶ Abrir caja</button>
       </div>
@@ -1385,10 +1398,17 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
         <button class="btn btn-primary" onclick="guardarConfigSheets()">💾 Guardar y probar</button>
         <button class="btn btn-ghost" onclick="testConexion()">🔄 Probar conexión</button>
         <button class="btn btn-ghost" onclick="descargarDeSheetsManual()">⬇ Descargar de Sheets</button>
-        <button class="btn btn-ghost" onclick="syncNow()">⬆ Sincronizar ahora</button>
+        <button class="btn btn-ghost admin-only" onclick="syncNow()">⬆ Sincronizar ahora</button>
         <button class="btn btn-ghost" onclick="cargarHistorialCompleto()">📜 Cargar historial completo</button>
       </div>
       <p style="font-size:11px;color:var(--txt2);margin-top:8px">⬇ trae lo que haya en la nube a este dispositivo (lo reemplaza aquí). ⬆ hace lo contrario: sube lo de este dispositivo y reemplaza lo que había en la nube. Úsalos según de qué lado está la información más reciente — nunca combinan ambos lados automáticamente. Para ahorrar datos móviles, las sincronizaciones normales solo traen ventas de los últimos 90 días — usa "📜 Cargar historial completo" (consume más datos) si necesitas ver/reportar ventas más viejas.</p>
+
+      <div class="admin-only" style="background:var(--indigo-lt);border-radius:10px;padding:12px;margin-top:12px">
+        <p style="font-size:13px;font-weight:700;color:var(--indigo);margin-bottom:6px">📱 Configurar el otro dispositivo sin copiar/pegar nada</p>
+        <p style="font-size:12px;color:var(--txt2);margin-bottom:10px">Una vez que la URL y la clave de arriba funcionen en <b>este</b> dispositivo, genera un código QR para que el OTRO dispositivo (el del negocio) se configure solo con la cámara — nada de copiar y pegar la URL.</p>
+        <button class="btn btn-indigo btn-sm" onclick="mostrarVincularDispositivo()">📷 Generar código para vincular</button>
+      </div>
+
       <details style="margin-top:14px">
         <summary style="font:600 12px var(--sans);cursor:pointer;color:var(--indigo)">📋 Instrucciones de configuración</summary>
         <div style="font-size:12px;color:var(--txt2);margin-top:8px;line-height:1.8;background:var(--bg);padding:12px;border-radius:8px">
@@ -1397,7 +1417,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
           <strong>3.</strong> Reemplaza <code>SYNC_SECRET</code> al inicio del script por la misma clave que pongas arriba, y guarda.<br>
           <strong>4.</strong> Implementa como Aplicación Web → Cualquier persona → copia la URL.<br>
           <strong>5.</strong> Pégala arriba junto con la clave y guarda.<br><br>
-          <button class="btn btn-ghost btn-sm" onclick="copyScript()">📋 Copiar código Apps Script</button>
+          <span style="color:var(--rojo)"><b>⚠️ Muy importante para que la URL nunca vuelva a "desaparecer":</b></span> si en el futuro actualizas el código del Apps Script, NO uses "Implementar → Nueva implementación" (eso genera una URL /exec distinta y deja la anterior sin funcionar). En vez de eso usa <b>Implementar → Gestionar implementaciones → ✏️ (editar la implementación existente) → Versión: Nueva versión → Implementar</b>. Así el código se actualiza pero la URL /exec queda exactamente igual para siempre, y ningún dispositivo necesita reconfigurarse.
         </div>
       </details>
     </div>
@@ -1502,6 +1522,22 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
     </div>
 
     <div class="card">
+      <div class="card-hd">🖨️ Copias e impresiones</div>
+      <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Activa esto para vender copias e impresiones desde el punto de venta con precios fijos, y para que la apertura/cierre de caja pida el contador de la impresora (copias y páginas impresas B/N y color) y así llevar el control de cuánto se usó cada turno.</p>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:10px">
+        <input type="checkbox" id="cfg-control-copias" onchange="guardarControlCopias(this.checked)" style="width:17px;height:17px;flex-shrink:0;padding:0;-webkit-appearance:checkbox;appearance:checkbox">
+        Activar venta de copias/impresiones y contador de impresora
+      </label>
+      <div style="font-size:12px;color:var(--txt2);line-height:1.8;background:var(--bg);padding:12px;border-radius:8px">
+        <strong>Copia B/N tamaño carta</strong> — $1.00<br>
+        <strong>Copia INE B/N</strong> — $2.00<br>
+        <strong>Copia B/N tamaño oficio</strong> — $2.00<br>
+        <strong>Descarga e impresión B/N</strong> (CURP, constancia IMSS/ISSSTE) — $10.00<br>
+        <span style="color:var(--txt3)">Se venden desde Venta, categoría "Copias e impresiones" — ajusta los precios ahí mismo (Inventario) cuando quieras.</span>
+      </div>
+    </div>
+
+    <div class="card">
       <div class="card-hd">🔔 Alertas de inventario por correo</div>
       <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">Además de la campanita 🔔 dentro de la app, puedes recibir un correo diario con el stock bajo y los productos por caducar — llega aunque nadie tenga la app abierta. Necesitas Google Sheets conectado (ver abajo).</p>
       <div class="field">
@@ -1520,6 +1556,19 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
         <input id="cfg-sucursal" placeholder="Ej. Sucursal Centro">
       </div>
       <button class="btn btn-primary btn-sm" onclick="guardarSucursal()">💾 Guardar</button>
+    </div>
+
+    <div class="card" style="border:2px solid var(--indigo)">
+      <div class="card-hd">🔒 Modo de este dispositivo</div>
+      <p style="font-size:12px;color:var(--txt2);margin-bottom:12px"><b>Administrador</b>: control total, igual que hasta ahora (agregar/editar/eliminar productos, empleados, clientes, etc.). <b>Sucursal</b>: para el dispositivo del negocio — los empleados pueden vender, abrir/cerrar caja y agregar información normalmente, pero <b>ningún botón de esta app puede borrar nada</b> (productos, empleados, clientes, facturas, "Borrar TODO", etc.), ni reemplazar lo que hay en Google Sheets — así, aunque conozcan tu NIP o se cierre/reinicie la app, no se puede perder información. Es propio de este dispositivo, no se sincroniza.</p>
+      <div class="field">
+        <label>Este dispositivo es</label>
+        <select id="cfg-rol-dispositivo" onchange="guardarRolDispositivo()">
+          <option value="admin">👑 Administrador (control total)</option>
+          <option value="sucursal">🏪 Sucursal (solo venta, no puede eliminar nada)</option>
+        </select>
+      </div>
+      <p style="font-size:11px;color:var(--txt3)">⚠️ Para que "Sucursal" proteja de verdad, configura arriba un NIP del dueño — si no, cualquiera podría volver a poner este dispositivo en modo Administrador desde aquí mismo.</p>
     </div>
 
     <div class="card" id="cfg-card-owner-pin" style="display:none">
@@ -1592,9 +1641,9 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
         <strong>Borrar datos de prueba</strong> elimina productos, ventas y facturas de ejemplo. Tu configuración se conserva.
       </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
-        <button class="btn btn-amber btn-sm" onclick="borrarDatosPrueba()">🧹 Borrar datos de prueba</button>
+        <button class="btn btn-amber btn-sm admin-only" onclick="borrarDatosPrueba()">🧹 Borrar datos de prueba</button>
         <button class="btn btn-ghost btn-sm" onclick="exportDB()">⬇ Exportar datos</button>
-        <button class="btn btn-danger btn-sm" onclick="borrarTodo()">🗑 Borrar TODO</button>
+        <button class="btn btn-danger btn-sm admin-only" onclick="borrarTodo()">🗑 Borrar TODO</button>
       </div>
     </div>
 
@@ -1624,6 +1673,17 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
 <!-- Conteo de efectivo al cerrar caja — antes se cerraba con un simple
      confirm(); ahora se pide contar el cajón para poder calcular faltante,
      que además va en el QR del ticket de cierre. -->
+<!-- Vincular otro dispositivo por QR: evita copiar/pegar la URL y clave de
+     Google Sheets a mano en el dispositivo del negocio. -->
+<div class="modal-bg" id="modal-vincular-dispositivo">
+  <div class="modal" style="max-width:360px;text-align:center">
+    <h3>📱 Vincular otro dispositivo</h3>
+    <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">En el OTRO dispositivo (el del negocio), abre la app de Cámara y apunta a este código — va a ofrecer abrir un enlace: tócalo y NovaPOS se configura solo. Muéstralo solo a quien deba tener acceso: el enlace incluye tu clave secreta de sincronización.</p>
+    <div id="vincular-qr-box" style="display:flex;justify-content:center;margin-bottom:14px"></div>
+    <button class="btn btn-ghost btn-full" onclick="closeModal('modal-vincular-dispositivo')">Cerrar</button>
+  </div>
+</div>
+
 <div class="modal-bg" id="modal-cierre-caja">
   <div class="modal" style="max-width:380px">
     <h3>⏹ Cerrar caja</h3>
@@ -1650,6 +1710,15 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
     <div class="field">
       <label>Efectivo contado</label>
       <input type="number" id="cierre-contado" min="0" step="0.01" placeholder="0.00" oninput="calcDiferenciaCierre()" onkeydown="if(event.key==='Enter')confirmarCierreCaja()">
+    </div>
+    <div id="cierre-contadores-field" style="display:none">
+      <p style="font-size:12px;color:var(--txt2);margin:10px 0 8px">🖨️ Contador actual de la impresora (al terminar el turno) — una vez que cierres la caja, ya no se puede editar.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+        <div class="field" style="margin:0"><label>Copias B/N</label><input type="number" id="cierre-cont-bn" min="0" placeholder="0"></div>
+        <div class="field" style="margin:0"><label>Copias color</label><input type="number" id="cierre-cont-color" min="0" placeholder="0"></div>
+        <div class="field" style="margin:0"><label>Impresiones B/N</label><input type="number" id="cierre-cont-imp-bn" min="0" placeholder="0"></div>
+        <div class="field" style="margin:0"><label>Impresiones color</label><input type="number" id="cierre-cont-imp-color" min="0" placeholder="0"></div>
+      </div>
     </div>
     <div class="cambio-box" id="cierre-diferencia-box">
       <div class="lbl">Diferencia</div>
@@ -2035,7 +2104,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0}
     <div class="ticket-preview" id="fac-preview-body" style="max-width:none"></div>
     <div class="ticket-actions">
       <button class="btn btn-ghost" style="flex:1" onclick="closeModal('modal-fac-preview')">✕ Cerrar</button>
-      <button class="btn btn-danger" style="flex:1" id="btn-cancelar-fac" onclick="cancelarFacturaActual()">🚫 Cancelar</button>
+      <button class="btn btn-danger admin-only" style="flex:1" id="btn-cancelar-fac" onclick="cancelarFacturaActual()">🚫 Cancelar</button>
       <button class="btn btn-indigo" style="flex:2" onclick="imprimirFacturaActual()">🖨 Imprimir</button>
     </div>
   </div>
@@ -2358,6 +2427,13 @@ function activarModoPro(lic) {
 
   const sucursalEl = document.getElementById('cfg-sucursal');
   if (sucursalEl) sucursalEl.value = cfg.sucursal || '';
+
+  const rolDispositivoEl = document.getElementById('cfg-rol-dispositivo');
+  if (rolDispositivoEl) rolDispositivoEl.value = cfg.rolDispositivo || 'admin';
+  aplicarRestriccionesSucursal();
+
+  const controlCopiasEl = document.getElementById('cfg-control-copias');
+  if (controlCopiasEl) controlCopiasEl.checked = !!cfg.controlCopias;
 
   const mpDeviceEl = document.getElementById('cfg-mp-device-id');
   if (mpDeviceEl) mpDeviceEl.value = cfg.mpDeviceId || '';
@@ -2750,7 +2826,7 @@ const SHEET_HEADERS = {
   movimientos: ['id','fecha','tipo','monto','concepto','sucursal'],
   facturas:    ['id','folio','ventaId','fecha','clienteNombre','clienteRFC','clienteEmail','clienteDir','usoCFDI','metodoPago','formaPago','subtotal','iva','total','estatus','cfdiUUID'],
   recargas:    ['id','folio','fecha','compania','modalidad','telefono','monto','comisionPct','gananciaEstimada','estatus','folioProveedor','metodoPago','mensaje'],
-  cortes:      ['apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','folio','codigoEmpleado','efectivoEsperado','efectivoContado','faltante','sucursal','fiadoCount','fiadoTotal'],
+  cortes:      ['apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','folio','codigoEmpleado','efectivoEsperado','efectivoContado','faltante','sucursal','fiadoCount','fiadoTotal','contAperturaBn','contAperturaColor','contAperturaImpBn','contAperturaImpColor','contCierreBn','contCierreColor','contCierreImpBn','contCierreImpColor'],
   vendedores:  ['id','nombre','codigoEmpleado'],
   config:      ['key','value'],
   // Kardex de entradas de mercancía — separado de "movimientos" (que es
@@ -2841,7 +2917,7 @@ let db = { productos:[], ventas:[], movimientos:[], facturas:[], caja:{abierta:f
 // mpDeviceId: a propósito NO se sube nunca a guardarConfigEnSheets() —
 // identifica la terminal física Point pareada con ESTE dispositivo/caja,
 // que puede ser distinta en cada tablet si el negocio tiene varias.
-let cfg = { url:'', syncSecret:'', nombre:'NovaPOS Demo', rfc:'', tel:'', dir:'', giro:'generico', iva:16, logo:'', ticketAncho:'80', rechargeComision:6, invPin:'', ownerPin:'', corteEmail:'', mpDeviceId:'', recargaComisionFija:2, recargaModalidades:{}, recargaTelefonoSoporte:{}, recargaModoManual:false, sucursal:'', alertasEmail:'' };
+let cfg = { url:'', syncSecret:'', nombre:'NovaPOS Demo', rfc:'', tel:'', dir:'', giro:'generico', iva:16, logo:'', ticketAncho:'80', rechargeComision:6, invPin:'', ownerPin:'', corteEmail:'', mpDeviceId:'', recargaComisionFija:2, recargaModalidades:{}, recargaTelefonoSoporte:{}, recargaModoManual:false, sucursal:'', alertasEmail:'', rolDispositivo:'admin', controlCopias:false };
 let ticket = [];
 let editProdId = null;
 let syncing = false;
@@ -2963,6 +3039,84 @@ const GIROS = {
 };
 
 function getGiro() { return GIROS[cfg.giro] || GIROS.generico; }
+
+// ══════════════════════════════════════════════════════════
+//  COPIAS E IMPRESIONES — se venden como productos normales (mismo carrito,
+//  cobro, fiado, reportes y rentabilidad de siempre) para no duplicar nada
+//  del checkout. "stock" arranca altísimo porque es un servicio, no algo que
+//  se pueda agotar de verdad — si algún día se acerca a 0, se ajusta desde
+//  Inventario como cualquier otro producto.
+// ══════════════════════════════════════════════════════════
+const SERVICIOS_COPIAS = [
+  { barcode:'SERV-COPIA-BN-CARTA',   nombre:'Copia B/N carta',      precio:1,  unidad:'copia' },
+  { barcode:'SERV-COPIA-INE-BN',     nombre:'Copia INE B/N',        precio:2,  unidad:'copia' },
+  { barcode:'SERV-COPIA-BN-OFICIO',  nombre:'Copia B/N oficio',     precio:2,  unidad:'copia' },
+  { barcode:'SERV-IMPRESION-BN-DOC', nombre:'Descarga e impresión B/N (CURP, IMSS, ISSSTE)', precio:10, unidad:'documento' },
+];
+
+function sembrarServiciosCopias() {
+  let agregado = false;
+  SERVICIOS_COPIAS.forEach(s => {
+    if (db.productos.some(p => p.barcode === s.barcode)) return;
+    const p = { id: uid(), sku: s.barcode, barcode: s.barcode, nombre: s.nombre, cat: 'Copias e impresiones', proveedor: '', precio: s.precio, costo: 0, stock: 999990, stockmin: 0, vence: '', unidad: s.unidad, desc: '' };
+    db.productos.push(p);
+    agregado = true;
+    if (cfg.url) sheetsUpsert('productos', p);
+  });
+  if (agregado) save();
+}
+
+// "Activar copias/impresiones" es una decisión del negocio (no de un solo
+// dispositivo) — se sincroniza en la hoja "config" como giro/corte_email,
+// para que todos los dispositivos conectados muestren/pidan lo mismo.
+function guardarControlCopias(activo) {
+  cfg.controlCopias = activo;
+  saveCfg();
+  if (activo) { sembrarServiciosCopias(); renderPosGrid(); renderInv(); }
+  actualizarCamposContadorImpresora();
+  if (cfg.url) sheetsPost({ action:'upsert', sheet:'config', data:{key:'control_copias', value: activo ? '1' : '0'} });
+  toast(activo ? 'Copias e impresiones activadas ✓' : 'Copias e impresiones desactivadas', activo ? 'ok' : 'warn');
+}
+
+// ══════════════════════════════════════════════════════════
+//  ROL DE ESTE DISPOSITIVO — 'admin' (dueño, control total, como siempre) o
+//  'sucursal' (el dispositivo del negocio: nunca puede borrar información,
+//  aunque conozca el NIP del dueño o se cierre/reinicie la app). Es un
+//  ajuste local (como cfg.sucursal/mpDeviceId): cada dispositivo tiene el
+//  suyo, no se sincroniza — así un dispositivo no le cambia el rol al otro.
+// ══════════════════════════════════════════════════════════
+function aplicarRestriccionesSucursal() {
+  document.body.classList.toggle('modo-sucursal', cfg.rolDispositivo === 'sucursal');
+}
+
+function bloqueadoEnSucursal() {
+  if (cfg.rolDispositivo !== 'sucursal') return false;
+  toast('Esta acción no está disponible en este dispositivo (modo Sucursal)', 'err');
+  return true;
+}
+
+function guardarRolDispositivo() {
+  const nuevo = document.getElementById('cfg-rol-dispositivo').value;
+  const aplicar = () => {
+    cfg.rolDispositivo = nuevo;
+    saveCfg();
+    aplicarRestriccionesSucursal();
+    toast(nuevo === 'sucursal' ? 'Este dispositivo ya no puede borrar información ✓' : 'Este dispositivo tiene control total ✓');
+  };
+  // Cambiar DE sucursal A administrador es justo lo que esta protección debe
+  // evitar que cualquiera haga con solo abrir Configuración — se pide el NIP
+  // del dueño directo (sin pasar por requiereOwnerPin(), que en licencias
+  // Versión 1 deja pasar sin pedir nada) para que esto no dependa del tier.
+  if (cfg.rolDispositivo === 'sucursal' && nuevo === 'admin' && cfg.ownerPin) {
+    ownerPinAccionPendiente = aplicar;
+    document.getElementById('owner-pin-input').value = '';
+    document.getElementById('owner-pin-error').textContent = '';
+    openModal('modal-owner-pin');
+    setTimeout(() => document.getElementById('owner-pin-input').focus(), 50);
+  } else {
+    aplicar();
+  }
+}
 
 // Catálogo de 12 productos demo por giro (mismo tamaño en todos, para que
 // las ventas simuladas de loadDemoData() siempre encuentren los índices que usan).
@@ -3146,6 +3300,7 @@ function cargarProductosDeGiro(giro) {
 // ══════════════════════════════════════════════════════════
 async function iniciarApp() {
   load();
+  aplicarVinculacionPorQR();
   // Dispositivo nuevo (o recién reinstalado) que YA tiene configurada la URL de
   // Sheets pero su base local está vacía: antes caía directo a datos de demo,
   // ocultando lo que otros dispositivos ya habían subido. Intentar bajarlo primero.
@@ -3162,6 +3317,8 @@ async function iniciarApp() {
     ];
     save();
   }
+  if (cfg.controlCopias) sembrarServiciosCopias();
+  aplicarRestriccionesSucursal();
   // Cada compañía necesita al menos una "modalidad" (tiempo aire, paquete de
   // datos, etc.) para poder recargar. Telcel/Movistar/Unefon/AT&T/BAIT
   // (RECARGA_PAQUETES_DEFAULT) traen su catálogo real de paquetes con
@@ -3410,6 +3567,7 @@ function saveAndDeleteFast(sheet, id) {
 }
 
 async function syncNow() {
+  if (bloqueadoEnSucursal()) return;
   if (!cfg.url) { toast('Configura la URL del Apps Script primero','warn'); return; }
   // 'sync_all' reemplaza TODO lo que hay en la hoja con lo de este dispositivo
   // (ver doPost en APPS_SCRIPT_CODE) — es de una sola vía, no combina con lo
@@ -3461,7 +3619,7 @@ const CAMPOS_NUMERICOS_SHEET = {
   movimientos: ['monto'],
   facturas:    ['subtotal','iva','total'],
   recargas:    ['monto','comisionPct','gananciaEstimada'],
-  cortes:      ['fondo','ingresos','egresos','saldoFinal','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','efectivoEsperado','efectivoContado','faltante','fiadoCount','fiadoTotal'],
+  cortes:      ['fondo','ingresos','egresos','saldoFinal','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','efectivoEsperado','efectivoContado','faltante','fiadoCount','fiadoTotal','contAperturaBn','contAperturaColor','contAperturaImpBn','contAperturaImpColor','contCierreBn','contCierreColor','contCierreImpBn','contCierreImpColor'],
   vendedores:  [],
   entradas_inventario: ['cantidad','stockAntes','stockDespues'],
   turnos: [],
@@ -3554,8 +3712,10 @@ async function cargarDeSheets(avisar = true, completo = false) {
     if ('giro'           in configMap) cfg.giro   = String(configMap.giro||cfg.giro);
     if ('corte_email'    in configMap) cfg.corteEmail = String(configMap.corte_email||'');
     if ('alertas_email'  in configMap) cfg.alertasEmail = String(configMap.alertas_email||'');
+    if ('control_copias' in configMap) cfg.controlCopias = configMap.control_copias === '1' || configMap.control_copias === true;
     if (pins) { cfg.ownerPin = pins.ownerPin || ''; cfg.invPin = pins.invPin || ''; }
     saveCfg();
+    if (cfg.controlCopias) sembrarServiciosCopias();
 
     setSyncState('ok', 'Descargado de Google Sheets');
     if (avisar) toast('Datos descargados de Google Sheets ✓', 'ok');
@@ -3694,6 +3854,7 @@ async function guardarConfigEnSheets() {
     {key:'giro',           value:cfg.giro},
     {key:'corte_email',    value:cfg.corteEmail||''},
     {key:'alertas_email',  value:cfg.alertasEmail||''},
+    {key:'control_copias', value:cfg.controlCopias ? '1' : '0'},
     {key:'version',        value:'PRO-2.0'},
     {key:'ultima_sync',    value:new Date().toISOString()},
   ];
@@ -4007,7 +4168,7 @@ function renderVendedores() {
         <span style="display:flex;gap:6px;flex-shrink:0">
           <button class="btn btn-ghost btn-sm" onclick="cambiarNipVendedor('${v.id}')">🔑 NIP</button>
           <button class="btn btn-ghost btn-sm" onclick="cambiarCodigoVendedor('${v.id}')">🏷️ Código</button>
-          <button class="btn btn-danger btn-sm" onclick="eliminarVendedor('${v.id}')">🗑</button>
+          <button class="btn btn-danger btn-sm admin-only" onclick="eliminarVendedor('${v.id}')">🗑</button>
         </span>
       </div>`).join('');
   }
@@ -4039,6 +4200,7 @@ function agregarVendedor() {
 }
 
 function eliminarVendedor(id) {
+  if (bloqueadoEnSucursal()) return;
   if (!confirm('¿Eliminar este vendedor? Las ventas y cortes que ya se hicieron con su nombre no cambian.')) return;
   db.vendedores = db.vendedores.filter(v => v.id !== id);
   save();
@@ -4069,7 +4231,7 @@ function renderClientes() {
         </span>
         <span style="display:flex;gap:6px;flex-shrink:0">
           ${(c.saldo||0)>0 ? `<button class="btn btn-ghost btn-sm" onclick="abrirAbonoCliente('${c.id}')">💵 Abonar</button>` : ''}
-          <button class="btn btn-danger btn-sm" onclick="eliminarCliente('${c.id}')">🗑</button>
+          <button class="btn btn-danger btn-sm admin-only" onclick="eliminarCliente('${c.id}')">🗑</button>
         </span>
       </div>`).join('');
   }
@@ -4091,6 +4253,7 @@ function agregarCliente() {
 }
 
 function eliminarCliente(id) {
+  if (bloqueadoEnSucursal()) return;
   const c = db.clientes.find(x=>x.id===id);
   if (!c) return;
   const aviso = (c.saldo||0)>0
@@ -4153,7 +4316,7 @@ function renderTurnos() {
       </span>
       <span style="display:flex;gap:6px;flex-shrink:0">
         <button class="btn btn-ghost btn-sm" onclick="abrirTurnoModal('${t.id}')">✏️</button>
-        <button class="btn btn-danger btn-sm" onclick="eliminarTurno('${t.id}')">🗑</button>
+        <button class="btn btn-danger btn-sm admin-only" onclick="eliminarTurno('${t.id}')">🗑</button>
       </span>
     </div>`;
   }).join('');
@@ -4225,6 +4388,7 @@ function guardarTurno() {
 }
 
 function eliminarTurno(id) {
+  if (bloqueadoEnSucursal()) return;
   if (!confirm('¿Eliminar este turno?')) return;
   db.turnos = db.turnos.filter(t=>t.id!==id);
   save();
@@ -4402,6 +4566,7 @@ async function conectarImpresoraBT() {
 }
 
 async function borrarDatosPrueba() {
+  if (bloqueadoEnSucursal()) return;
   if (!confirm('¿Borrar todos los productos, ventas y facturas de ejemplo?\nTu configuración y licencia se conservarán.')) return;
   db.productos   = [];
   db.ventas      = [];
@@ -4583,6 +4748,7 @@ function registrarEntradaInventario(producto, cantidad, stockAntes, stockDespues
 
 async function eliminarProd(id) { requiereNip(() => _eliminarProd(id)); }
 async function _eliminarProd(id) {
+  if (bloqueadoEnSucursal()) return;
   if (!confirm('¿Eliminar este producto?')) return;
   db.productos = db.productos.filter(p=>p.id!==id);
   saveAndDeleteFast('productos', id);
@@ -4655,7 +4821,7 @@ function renderInv() {
       <td class="campo-vence">${vb}</td>
       <td style="white-space:nowrap">
         <button class="btn btn-ghost btn-sm" onclick="editProd('${p.id}')">✏️</button>
-        <button class="btn btn-danger btn-sm" onclick="eliminarProd('${p.id}')">🗑</button>
+        <button class="btn btn-danger btn-sm admin-only" onclick="eliminarProd('${p.id}')">🗑</button>
       </td>
     </tr>`;
   }).join('');
@@ -4717,6 +4883,7 @@ function camposLlenos(p) {
 }
 
 async function fusionarDuplicados() {
+  if (bloqueadoEnSucursal()) return;
   const grupos = buscarDuplicados();
   if (!grupos.length) { toast('No se encontraron productos duplicados','ok'); return; }
   const resumen = grupos.map(g =>
@@ -5567,6 +5734,37 @@ function buildCorteQrSvg(texto, moduleSizePx = 4) {
 }
 
 // ══════════════════════════════════════════════════════════
+//  VINCULAR OTRO DISPOSITIVO POR QR — para no tener que copiar/pegar la URL
+//  y clave secreta de Google Sheets a mano en el dispositivo del negocio
+//  (fuente de errores: se copia mal, se le corta un carácter, etc.). El QR
+//  codifica un link a esta misma app con ?syncUrl=&syncSecret= — cualquier
+//  cámara los detecta como enlace normal; al abrirlo, aplicarVinculacionPorQR()
+//  toma esos valores y configura el dispositivo solo.
+// ══════════════════════════════════════════════════════════
+function mostrarVincularDispositivo() {
+  if (bloqueadoEnSucursal()) return;
+  if (!cfg.url || !cfg.syncSecret) { toast('Primero guarda y prueba la URL y la clave de Google Sheets arriba','warn'); return; }
+  const link = `${location.origin}${location.pathname}?syncUrl=${encodeURIComponent(cfg.url)}&syncSecret=${encodeURIComponent(cfg.syncSecret)}`;
+  document.getElementById('vincular-qr-box').innerHTML = buildCorteQrSvg(link, 5);
+  openModal('modal-vincular-dispositivo');
+}
+
+// Se llama al arrancar (ver iniciarApp()). Si la página se abrió desde el
+// link del QR de arriba, toma la URL/clave de la dirección y las guarda —
+// y de inmediato limpia la URL visible del navegador para no dejar la clave
+// secreta a la vista en el historial una vez que ya se guardó en cfg.
+function aplicarVinculacionPorQR() {
+  const params = new URLSearchParams(location.search);
+  const syncUrl = params.get('syncUrl');
+  if (!syncUrl) return;
+  cfg.url = syncUrl;
+  cfg.syncSecret = params.get('syncSecret') || '';
+  saveCfg();
+  history.replaceState({}, '', location.pathname);
+  toast('Dispositivo vinculado ✓ — descargando información…', 'ok');
+}
+
+// ══════════════════════════════════════════════════════════
 //  RESUMEN DE TURNO — se genera al cerrar caja (ver cerrarCaja()).
 // ══════════════════════════════════════════════════════════
 // Arma el JSON que codifica el QR del ticket de cierre, con el formato
@@ -5608,6 +5806,8 @@ function buildCorteHTML(corte) {
   // confirmarVenta() y procesarRecarga()), así que lo que sobra al restar
   // ventas y recargas son exactamente los ingresos manuales.
   const otrosIngresos = Math.max(0, corte.ingresos - corte.ventasTotal - corte.recargasTotal);
+  const tieneContadores = corte.contCierreBn !== undefined && corte.contCierreBn !== '';
+  const usoContador = (aper, cierre) => (aper!==''&&aper!=null && cierre!==''&&cierre!=null) ? (cierre-aper) : '—';
   return `
     <div style="text-align:center;font-weight:700;font-size:15px;letter-spacing:1px;margin-bottom:2px">${negocio.toUpperCase()}</div>
     <div style="text-align:center;font-size:12px;color:#555;margin-bottom:6px">RESUMEN DE TURNO</div>
@@ -5632,6 +5832,14 @@ function buildCorteHTML(corte) {
     <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;${corte.faltante>0?'color:#dc2626':corte.faltante<0?'color:#059669':''}">
       <span>${corte.faltante>0?'FALTANTE':corte.faltante<0?'SOBRANTE':'DIFERENCIA'}</span><span>${mxn(Math.abs(corte.faltante))}</span>
     </div>
+    ${tieneContadores ? `
+    <div style="border-top:1px dashed #999;margin:6px 0"></div>
+    <div style="font-size:11px;font-weight:700;margin-bottom:2px">🖨️ CONTADOR DE IMPRESORA</div>
+    ${row('Copias B/N', usoContador(corte.contAperturaBn, corte.contCierreBn), 'font-size:11px')}
+    ${row('Copias color', usoContador(corte.contAperturaColor, corte.contCierreColor), 'font-size:11px')}
+    ${row('Impresiones B/N', usoContador(corte.contAperturaImpBn, corte.contCierreImpBn), 'font-size:11px')}
+    ${row('Impresiones color', usoContador(corte.contAperturaImpColor, corte.contCierreImpColor), 'font-size:11px')}
+    ` : ''}
     <div style="border-top:1px dashed #999;margin:8px 0"></div>
     <div style="text-align:center;font-size:10px;color:#999;margin-bottom:6px">Folio: ${esc(corte.folio)}${corte.codigoEmpleado ? ' · '+esc(corte.codigoEmpleado) : ''}</div>
     <div style="display:flex;justify-content:center;margin-bottom:4px">${buildCorteQrSvg(buildCorteQrPayload(corte))}</div>
@@ -5731,7 +5939,23 @@ async function abrirCaja() {
     vendedorId = v.id; vendedorNombre = v.nombre;
     pinInput.value = '';
   }
-  db.caja = {abierta:true, fondo, fechaApertura:new Date().toISOString(), vendedorId, vendedorNombre};
+
+  // Contador de la impresora (copias/impresiones): solo si el negocio activó
+  // "Copias e impresiones" en Configuración. Se pide completo al abrir Y al
+  // cerrar (ver confirmarCierreCaja()) para poder calcular cuánto se usó en
+  // el turno — una vez que la caja queda abierta, este valor de apertura ya
+  // no tiene ninguna pantalla desde donde editarlo.
+  let contadores = {};
+  if (cfg.controlCopias) {
+    const campos = { bn:'caja-cont-bn', color:'caja-cont-color', impBn:'caja-cont-imp-bn', impColor:'caja-cont-imp-color' };
+    for (const k in campos) {
+      const val = parseFloat(document.getElementById(campos[k]).value);
+      if (isNaN(val) || val < 0) { toast('Captura el contador de la impresora (copias/impresiones) antes de abrir la caja','warn'); return; }
+      contadores[k] = val;
+    }
+  }
+
+  db.caja = {abierta:true, fondo, fechaApertura:new Date().toISOString(), vendedorId, vendedorNombre, contadoresApertura: contadores};
   // El estado de la caja en vivo es solo local (no hay una hoja "caja" en
   // la nube) — no hace falta esperar ni disparar una sincronización de red.
   save();
@@ -5823,8 +6047,22 @@ function cerrarCaja() {
   contadoEl.value = '';
   document.getElementById('cierre-diferencia-num').textContent = mxn(0);
   document.getElementById('cierre-diferencia-box').className = 'cambio-box';
+  actualizarCamposContadorImpresora();
+  ['cierre-cont-bn','cierre-cont-color','cierre-cont-imp-bn','cierre-cont-imp-color'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
   openModal('modal-cierre-caja');
   setTimeout(() => contadoEl.focus(), 50);
+}
+
+// Muestra/oculta los 4 campos de contador de impresora (apertura y cierre de
+// caja) según si el negocio activó "Copias e impresiones" en Configuración —
+// si no está activo, la caja se abre/cierra exactamente igual que siempre.
+function actualizarCamposContadorImpresora() {
+  const aperturaField = document.getElementById('caja-contadores-field');
+  if (aperturaField) aperturaField.style.display = cfg.controlCopias ? 'block' : 'none';
+  const cierreField = document.getElementById('cierre-contadores-field');
+  if (cierreField) cierreField.style.display = cfg.controlCopias ? 'block' : 'none';
 }
 
 function calcDiferenciaCierre() {
@@ -5840,6 +6078,22 @@ async function confirmarCierreCaja() {
   const contado = parseFloat(document.getElementById('cierre-contado').value);
   if (isNaN(contado) || contado < 0) { toast('Ingresa el efectivo contado en el cajón','warn'); return; }
 
+  // Contador de la impresora al cierre — mismo candado que en abrirCaja():
+  // si está activo "Copias e impresiones", los 4 campos son obligatorios y,
+  // una vez guardados en el corte, no hay ninguna pantalla desde donde
+  // volver a editarlos.
+  let contadoresCierre = {};
+  if (cfg.controlCopias) {
+    const campos = { bn:'cierre-cont-bn', color:'cierre-cont-color', impBn:'cierre-cont-imp-bn', impColor:'cierre-cont-imp-color' };
+    for (const k in campos) {
+      const val = parseFloat(document.getElementById(campos[k]).value);
+      if (isNaN(val) || val < 0) { toast('Captura el contador de la impresora (copias/impresiones) antes de cerrar la caja','warn'); return; }
+      const inicial = (db.caja.contadoresApertura || {})[k];
+      if (inicial != null && val < inicial) { toast('El contador de cierre no puede ser menor al de apertura — revisa el número capturado','err'); return; }
+      contadoresCierre[k] = val;
+    }
+  }
+
   // Se recalcula con la hora real de confirmación (no la de cuando se abrió
   // el modal) para no dejar fuera algún movimiento capturado mientras se
   // contaba el efectivo.
@@ -5850,6 +6104,7 @@ async function confirmarCierreCaja() {
   // No se reinicia el consecutivo cada día (folio único para siempre) — se
   // basa en cuántos cortes existen en total, nunca decrece.
   const folio = `TCK-${fechaCompacta}-${String(db.cortes.length+1).padStart(4,'0')}`;
+  const contAper = db.caja.contadoresApertura || {};
 
   const corte = {
     ...resumen,
@@ -5859,6 +6114,16 @@ async function confirmarCierreCaja() {
     faltante,
     sucursal: cfg.sucursal || '',
   };
+  if (cfg.controlCopias) {
+    corte.contAperturaBn = contAper.bn ?? '';
+    corte.contAperturaColor = contAper.color ?? '';
+    corte.contAperturaImpBn = contAper.impBn ?? '';
+    corte.contAperturaImpColor = contAper.impColor ?? '';
+    corte.contCierreBn = contadoresCierre.bn;
+    corte.contCierreColor = contadoresCierre.color;
+    corte.contCierreImpBn = contadoresCierre.impBn;
+    corte.contCierreImpColor = contadoresCierre.impColor;
+  }
   db.cortes.push(corte);
   db.caja = {abierta:false,fondo:0,fechaApertura:null};
   closeModal('modal-cierre-caja');
@@ -5894,6 +6159,7 @@ async function registrarMov() {
 }
 
 function renderCaja() {
+  actualizarCamposContadorImpresora();
   const h = hoy();
   const movH = db.movimientos.filter(m=>m.fecha.startsWith(h));
   const movIngresos = movH.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+m.monto,0);
@@ -6956,6 +7222,7 @@ ${html}
 }
 
 async function cancelarFacturaActual() {
+  if (bloqueadoEnSucursal()) return;
   if (!facturaActual) return;
   if (!confirm(`¿Cancelar la factura ${facturaActual.folio}? Esta acción no se puede deshacer.`)) return;
   const f = db.facturas.find(x=>x.id===facturaActual.id);
@@ -7080,6 +7347,7 @@ function exportDB() {
 }
 
 async function borrarTodo() {
+  if (bloqueadoEnSucursal()) return;
   if (!confirm('⚠️ ¿Borrar TODOS los datos locales y en Google Sheets?')) return;
   if (!confirm('Última confirmación: se eliminarán productos, ventas, facturas, movimientos, cortes, recargas y vendedores.')) return;
   if (cfg.url) {
