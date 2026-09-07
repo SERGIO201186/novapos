@@ -270,12 +270,16 @@ input[readonly]{background:var(--bg);color:var(--txt2)}
 .btn-lg{padding:14px 24px;font-size:15px;border-radius:10px}
 
 /* ══ TABLE ══ */
-/* touch-action:pan-x — evita que este contenedor (que solo hace scroll
-   horizontal) se quede con el gesto táctil vertical; sin esto, en algunas
-   tablets/WebViews arrastrar el dedo sobre una tabla ancha (Inventario,
-   Recargas) bloqueaba el scroll de toda la pantalla en vez de dejarlo
-   pasar hacia el contenedor .view que sí debe moverse verticalmente. */
-.tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;touch-action:pan-x;border-radius:var(--r-sm);border:1px solid var(--border)}
+/* touch-action:pan-x pan-y (no solo "pan-x") — la versión anterior de este
+   arreglo ("pan-x" a secas) se pasó de lado: en vez de solo evitar que un
+   arrastre horizontal sobre la tabla se sintiera "trabado", terminó
+   BLOQUEANDO por completo el arrastre vertical que empieza encima de una
+   tabla — exactamente el bug reportado ("en algunos campos no se puede
+   scrolear, solo se ve lo que cabe en la pantalla"), porque casi toda
+   Inventario/Reportes/Facturas es una tabla ancha. "pan-x pan-y" declara
+   los dos ejes: el navegador deja que el swipe horizontal mueva la tabla
+   y el vertical se encadene hacia arriba, hacia el contenedor .view. */
+.tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y;border-radius:var(--r-sm);border:1px solid var(--border)}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{
   background:var(--bg);color:var(--txt2);
@@ -1689,8 +1693,12 @@ body.modo-sucursal .admin-only{display:none!important}
 <div class="modal-bg" id="modal-vincular-dispositivo">
   <div class="modal" style="max-width:360px;text-align:center">
     <h3>📱 Vincular otro dispositivo</h3>
-    <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">En el OTRO dispositivo (el del negocio), abre la app de Cámara y apunta a este código — va a ofrecer abrir un enlace: tócalo y NovaPOS se configura solo. Muéstralo solo a quien deba tener acceso: el enlace incluye tu clave secreta de sincronización.</p>
-    <div id="vincular-qr-box" style="display:flex;justify-content:center;margin-bottom:14px"></div>
+    <p style="font-size:12px;color:var(--txt2);margin-bottom:12px">En el OTRO dispositivo (el del negocio), abre la app de Cámara y apunta a este código — va a ofrecer abrir un enlace: tócalo y NovaPOS se configura y descarga la información sola, sin pedir NIP ni tocar nada más. Muéstralo solo a quien deba tener acceso: el enlace incluye tu clave secreta de sincronización.</p>
+    <div class="field" style="text-align:left">
+      <label>Sucursal para ese dispositivo (opcional)</label>
+      <input id="vincular-sucursal" placeholder="Ej. Sucursal Centro" oninput="generarQrVincular()">
+    </div>
+    <div id="vincular-qr-box" style="display:flex;justify-content:center;margin:14px 0"></div>
     <button class="btn btn-ghost btn-full" onclick="closeModal('modal-vincular-dispositivo')">Cerrar</button>
   </div>
 </div>
@@ -2853,7 +2861,14 @@ const SHEET_HEADERS = {
   movimientos: ['id','fecha','tipo','monto','concepto','sucursal'],
   facturas:    ['id','folio','ventaId','fecha','clienteNombre','clienteRFC','clienteEmail','clienteDir','usoCFDI','metodoPago','formaPago','subtotal','iva','total','estatus','cfdiUUID'],
   recargas:    ['id','folio','fecha','compania','modalidad','telefono','monto','comisionPct','gananciaEstimada','estatus','folioProveedor','metodoPago','mensaje'],
-  cortes:      ['apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','folio','codigoEmpleado','efectivoEsperado','efectivoContado','faltante','sucursal','fiadoCount','fiadoTotal','contAperturaBn','contAperturaColor','contAperturaImpBn','contAperturaImpColor','contCierreBn','contCierreColor','contCierreImpBn','contCierreImpColor'],
+  // ⚠️ "cortes" es la ÚNICA hoja de esta lista que no traía "id" — sin él,
+  // idCol quedaba en -1 en el upsert genérico de más abajo, y la comparación
+  // "r[-1] === data['key']" (ambos undefined) daba TRUE para cualquier fila,
+  // así que CADA cierre de caja sobreescribía la primera fila de datos en vez
+  // de agregar una nueva. Resultado: la hoja nunca acumulaba más de un corte
+  // a la vez. Con "id" agregado, el corte se identifica igual que cualquier
+  // otra hoja y cada cierre de caja sí agrega su propia fila.
+  cortes:      ['id','apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','folio','codigoEmpleado','efectivoEsperado','efectivoContado','faltante','sucursal','fiadoCount','fiadoTotal','contAperturaBn','contAperturaColor','contAperturaImpBn','contAperturaImpColor','contCierreBn','contCierreColor','contCierreImpBn','contCierreImpColor'],
   vendedores:  ['id','nombre','codigoEmpleado'],
   config:      ['key','value'],
   // Kardex de entradas de mercancía — separado de "movimientos" (que es
@@ -4850,8 +4865,15 @@ function renderInv() {
     return mq&&mc&&ms;
   });
 
+  // "Copias e impresiones" tiene un stock ficticio altísimo (999990 — ver
+  // sembrarServiciosCopias(), es un servicio, no algo que se pueda agotar de
+  // verdad), así que se excluye del valor de inventario: si no, un precio de
+  // $1-$10 por esa cantidad de "existencia" dispara el total a millones y ya
+  // no deja ver cuánto vale de verdad el resto del inventario.
+  const barcodesCopias = new Set(SERVICIOS_COPIAS.map(s => s.barcode));
+  const prodsInventariables = db.productos.filter(p => !barcodesCopias.has(p.barcode));
   document.getElementById('inv-n').textContent    = db.productos.length;
-  document.getElementById('inv-val').textContent  = mxn(db.productos.reduce((s,p)=>s+p.precio*p.stock,0));
+  document.getElementById('inv-val').textContent  = mxn(prodsInventariables.reduce((s,p)=>s+p.precio*p.stock,0));
   document.getElementById('inv-bajo').textContent = db.productos.filter(p=>p.stock>0&&p.stock<=(p.stockmin||5)).length;
   document.getElementById('inv-cero').textContent = db.productos.filter(p=>p.stock<=0).length;
 
@@ -5564,6 +5586,7 @@ async function vaCerrarTurno() {
   const faltante = Math.round((resumen.efectivoEsperado - contado) * 100) / 100;
 
   const corte = {
+    id: uid(),
     ...resumen,
     vendedor: empleadoNombre, vendedorId: (vendedorInfo && vendedorInfo.id) || '',
     folio,
@@ -5797,21 +5820,42 @@ function buildCorteQrSvg(texto, moduleSizePx = 4) {
 function mostrarVincularDispositivo() {
   if (bloqueadoEnSucursal()) return;
   if (!cfg.url || !cfg.syncSecret) { toast('Primero guarda y prueba la URL y la clave de Google Sheets arriba','warn'); return; }
-  const link = `${location.origin}${location.pathname}?syncUrl=${encodeURIComponent(cfg.url)}&syncSecret=${encodeURIComponent(cfg.syncSecret)}`;
-  document.getElementById('vincular-qr-box').innerHTML = buildCorteQrSvg(link, 5);
+  document.getElementById('vincular-sucursal').value = '';
+  generarQrVincular();
   openModal('modal-vincular-dispositivo');
 }
 
-// Se llama al arrancar (ver iniciarApp()). Si la página se abrió desde el
-// link del QR de arriba, toma la URL/clave de la dirección y las guarda —
-// y de inmediato limpia la URL visible del navegador para no dejar la clave
-// secreta a la vista en el historial una vez que ya se guardó en cfg.
+function generarQrVincular() {
+  const sucursal = document.getElementById('vincular-sucursal').value.trim();
+  let link = `${location.origin}${location.pathname}?syncUrl=${encodeURIComponent(cfg.url)}&syncSecret=${encodeURIComponent(cfg.syncSecret)}`;
+  if (sucursal) link += `&sucursal=${encodeURIComponent(sucursal)}`;
+  document.getElementById('vincular-qr-box').innerHTML = buildCorteQrSvg(link, 5);
+}
+
+// Se llama al arrancar (ver iniciarApp()), ANTES del "if (!db.productos.length
+// && cfg.url) await cargarDeSheets(...)" de más abajo. Si la página se abrió
+// desde el link del QR de arriba, toma la URL/clave/sucursal de la dirección,
+// las guarda, y de inmediato limpia la URL visible del navegador para no
+// dejar la clave secreta a la vista en el historial una vez que ya se guardó
+// en cfg. También vacía el catálogo local — un dispositivo nuevo carga datos
+// de demo solo (ver más abajo, loadDemoData()) antes de que alguien alcance a
+// vincularlo, y sin esto la descarga automática de abajo nunca se dispara
+// (solo lo hace si el catálogo local está vacío) y el dispositivo se queda
+// con el demo en vez de bajar la información real — exactamente el reporte
+// de "debo entrar yo con NIP a dar Sincronizar/Descargar para que jale la
+// información": con esto, ya no hace falta ningún paso manual.
 function aplicarVinculacionPorQR() {
   const params = new URLSearchParams(location.search);
   const syncUrl = params.get('syncUrl');
   if (!syncUrl) return;
   cfg.url = syncUrl;
   cfg.syncSecret = params.get('syncSecret') || '';
+  const sucursal = params.get('sucursal');
+  if (sucursal) cfg.sucursal = sucursal;
+  db.productos = []; db.ventas = []; db.movimientos = []; db.facturas = [];
+  db.cortes = []; db.recargas = []; db.clientes = []; db.clientesMovs = [];
+  db.recargasMP = []; db.entradasInventario = []; db.turnos = [];
+  save();
   saveCfg();
   history.replaceState({}, '', location.pathname);
   toast('Dispositivo vinculado ✓ — descargando información…', 'ok');
@@ -6011,6 +6055,8 @@ function focusBarcode() {
 //  CAJA
 // ══════════════════════════════════════════════════════════
 async function abrirCaja() {
+  // Ver el mismo try/catch en confirmarCierreCaja() y por qué se agregó.
+  try {
   const fondo = parseFloat(document.getElementById('caja-fondo').value)||0;
   // Solo se pide NIP si el campo está visible (Versión 2 con al menos un
   // vendedor dado de alta) — en cualquier otro caso la caja se abre sin
@@ -6038,7 +6084,8 @@ async function abrirCaja() {
   if (cfg.controlCopias) {
     const campos = { bn:'caja-cont-bn', color:'caja-cont-color', impBn:'caja-cont-imp-bn', impColor:'caja-cont-imp-color' };
     for (const k in campos) {
-      const val = parseFloat(document.getElementById(campos[k]).value);
+      const el = document.getElementById(campos[k]);
+      const val = parseFloat(el ? el.value : NaN);
       if (isNaN(val) || val < 0) { toast('Captura el contador de la impresora (copias/impresiones) antes de abrir la caja','warn'); return; }
       contadores[k] = val;
     }
@@ -6052,6 +6099,10 @@ async function abrirCaja() {
   document.getElementById('caja-open').style.display='block';
   updateBadge(); renderCaja();
   toast(vendedorNombre ? `Caja abierta ✓ — turno de ${vendedorNombre}` : 'Caja abierta ✓');
+  } catch (err) {
+    console.error('[NovaPOS] Error al abrir caja:', err);
+    toast('No se pudo abrir la caja: ' + err.message, 'err');
+  }
 }
 
 // Junta los movimientos/ventas/recargas de ESTE turno (acotados a
@@ -6218,6 +6269,13 @@ function calcDiferenciaCierre() {
 }
 
 async function confirmarCierreCaja() {
+  // Todo el cierre queda envuelto en try/catch — antes, cualquier error
+  // inesperado aquí adentro (ej. un campo del DOM que no existiera) tronaba
+  // la función a medias EN SILENCIO: no saltaba ningún toast, no se
+  // guardaba el corte, y nadie se enteraba hasta días después al notar que
+  // faltaban cortes. Ahora, si algo llega a fallar, se ve un error claro en
+  // vez de que el cierre simplemente "no haga nada".
+  try {
   const contado = parseFloat(document.getElementById('cierre-contado').value);
   if (isNaN(contado) || contado < 0) { toast('Ingresa el efectivo contado en el cajón','warn'); return; }
 
@@ -6229,7 +6287,8 @@ async function confirmarCierreCaja() {
   if (cfg.controlCopias) {
     const campos = { bn:'cierre-cont-bn', color:'cierre-cont-color', impBn:'cierre-cont-imp-bn', impColor:'cierre-cont-imp-color' };
     for (const k in campos) {
-      const val = parseFloat(document.getElementById(campos[k]).value);
+      const el = document.getElementById(campos[k]);
+      const val = parseFloat(el ? el.value : NaN);
       if (isNaN(val) || val < 0) { toast('Captura el contador de la impresora (copias/impresiones) antes de cerrar la caja','warn'); return; }
       const inicial = (db.caja.contadoresApertura || {})[k];
       if (inicial != null && val < inicial) { toast('El contador de cierre no puede ser menor al de apertura — revisa el número capturado','err'); return; }
@@ -6250,6 +6309,11 @@ async function confirmarCierreCaja() {
   const contAper = db.caja.contadoresApertura || {};
 
   const corte = {
+    // ⚠️ Antes "cortes" no tenía "id" en el backend — sin un identificador
+    // propio, el upsert genérico no distinguía una fila de otra y cada
+    // cierre de caja SOBREESCRIBÍA el mismo renglón en vez de agregar uno
+    // nuevo (ver el comentario en SHEET_HEADERS.cortes, en nova_codigo.gs).
+    id: uid(),
     ...resumen,
     folio,
     codigoEmpleado: (vendedorInfo && vendedorInfo.codigoEmpleado) || '',
@@ -6300,6 +6364,10 @@ async function confirmarCierreCaja() {
 
   imprimirCorte(corte);
   if (cfg.corteEmail && cfg.url) enviarCorteCorreo(corte);
+  } catch (err) {
+    console.error('[NovaPOS] Error al cerrar caja:', err);
+    toast('No se pudo cerrar la caja: ' + err.message + ' — la caja SIGUE ABIERTA, vuelve a intentar', 'err');
+  }
 }
 
 async function registrarMov() {
