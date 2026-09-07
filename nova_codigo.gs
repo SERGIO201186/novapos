@@ -108,11 +108,19 @@ function doPost(e) {
     // sin poder verificarlo y causó que un cobro real se hiciera en la
     // terminal pero NovaPOS nunca cerrara la venta ni descontara inventario).
     if (action === 'mp_crear_intent') {
+      // "items" es obligatorio para /v1/orders — sin él, Mercado Pago
+      // responde 400 "no hay artículos para cobrar" aunque el monto y la
+      // terminal estén bien. Si NovaPOS no manda el detalle del ticket, se
+      // manda un solo artículo genérico con el monto total, para que la
+      // suma siempre cuadre exacto con transactions.payments[0].amount sin
+      // importar descuentos aplicados en el ticket.
+      var mpItems = (body.items && body.items.length) ? body.items : [{ title: 'Venta NovaPOS', quantity: 1, unit_price: Number(body.amount) }];
       return mpProxy_('POST', '/v1/orders', {
         type: 'point',
         external_reference: body.externalReference || '',
         expiration_time: 'PT16M',
         transactions: { payments: [ { amount: Number(body.amount).toFixed(2) } ] },
+        items: mpItems.map(function(it) { return { title: String(it.title || 'Producto'), quantity: Number(it.quantity) || 1, unit_price: Number(it.unit_price).toFixed(2) }; }),
         config: { point: { terminal_id: body.deviceId, print_on_terminal: 'no_ticket' } },
         description: 'Venta NovaPOS',
       }, function(data) { return json({ ok:true, data: { paymentIntentId: data.id } }); });

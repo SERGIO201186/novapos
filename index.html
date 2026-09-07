@@ -2637,11 +2637,19 @@ function doPost(e) {
     // sin poder verificarlo y causó que un cobro real se hiciera en la
     // terminal pero NovaPOS nunca cerrara la venta ni descontara inventario).
     if (action === 'mp_crear_intent') {
+      // "items" es obligatorio para /v1/orders — sin él, Mercado Pago
+      // responde 400 "no hay artículos para cobrar" aunque el monto y la
+      // terminal estén bien. Si NovaPOS no manda el detalle del ticket, se
+      // manda un solo artículo genérico con el monto total, para que la
+      // suma siempre cuadre exacto con transactions.payments[0].amount sin
+      // importar descuentos aplicados en el ticket.
+      var mpItems = (body.items && body.items.length) ? body.items : [{ title: 'Venta NovaPOS', quantity: 1, unit_price: Number(body.amount) }];
       return mpProxy_('POST', '/v1/orders', {
         type: 'point',
         external_reference: body.externalReference || '',
         expiration_time: 'PT16M',
         transactions: { payments: [ { amount: Number(body.amount).toFixed(2) } ] },
+        items: mpItems.map(function(it) { return { title: String(it.title || 'Producto'), quantity: Number(it.quantity) || 1, unit_price: Number(it.unit_price).toFixed(2) }; }),
         config: { point: { terminal_id: body.deviceId, print_on_terminal: 'no_ticket' } },
         description: 'Venta NovaPOS',
       }, function(data) { return json({ ok:true, data: { paymentIntentId: data.id } }); });
@@ -4146,9 +4154,9 @@ async function mpBuscarDispositivos() {
     </div>`).join('');
 }
 
-async function mpCrearIntent(amount, externalReference) {
+async function mpCrearIntent(amount, externalReference, items) {
   if (!cfg.mpDeviceId) return { ok:false, error:'No has configurado el Device ID de tu terminal (Configuración → Mercado Pago)' };
-  return sheetsPost({ action:'mp_crear_intent', deviceId: cfg.mpDeviceId, amount, externalReference });
+  return sheetsPost({ action:'mp_crear_intent', deviceId: cfg.mpDeviceId, amount, externalReference, items });
 }
 async function mpEstadoIntent(paymentIntentId) {
   return sheetsPost({ action:'mp_estado_intent', deviceId: cfg.mpDeviceId, paymentIntentId });
@@ -5234,8 +5242,18 @@ async function cobrarConMP() {
   document.getElementById('mp-cobro-status-box').className = 'cambio-box';
   setMpEstadoTexto('Creando cobro…');
 
+  // Mercado Pago exige mandar al menos un artículo en la orden (si no, la
+  // API responde 400 "no hay artículos para cobrar"). Se manda un solo
+  // renglón con el monto total en vez del detalle producto por producto,
+  // para que la suma siempre cuadre exacto con lo cobrado aunque el ticket
+  // traiga descuento aplicado.
+  const itemsMP = [{
+    title: ticket.length === 1 ? ticket[0].nombre : `Venta NovaPOS (${ticket.length} artículo${ticket.length===1?'':'s'})`,
+    quantity: 1,
+    unit_price: total,
+  }];
   const externalReference = 'novapos-' + uid();
-  const res = await mpCrearIntent(total, externalReference);
+  const res = await mpCrearIntent(total, externalReference, itemsMP);
   if (!res || !res.ok) {
     setMpEstadoTexto('Error: ' + (res && res.error ? res.error : 'no se pudo crear el cobro'));
     document.getElementById('mp-cobro-status-box').className = 'cambio-box neg';
