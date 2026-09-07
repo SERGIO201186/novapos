@@ -1401,9 +1401,9 @@ body.modo-sucursal .admin-only{display:none!important}
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-primary" onclick="guardarConfigSheets()">💾 Guardar y probar</button>
         <button class="btn btn-ghost" onclick="testConexion()">🔄 Probar conexión</button>
-        <button class="btn btn-ghost" onclick="descargarDeSheetsManual()">⬇ Descargar de Sheets</button>
+        <button class="btn btn-ghost admin-only" onclick="descargarDeSheetsManual()">⬇ Descargar de Sheets</button>
         <button class="btn btn-ghost admin-only" onclick="syncNow()">⬆ Sincronizar ahora</button>
-        <button class="btn btn-ghost" onclick="cargarHistorialCompleto()">📜 Cargar historial completo</button>
+        <button class="btn btn-ghost admin-only" onclick="cargarHistorialCompleto()">📜 Cargar historial completo</button>
       </div>
       <p style="font-size:11px;color:var(--txt2);margin-top:8px">⬇ trae lo que haya en la nube a este dispositivo (lo reemplaza aquí). ⬆ hace lo contrario: sube lo de este dispositivo y reemplaza lo que había en la nube. Úsalos según de qué lado está la información más reciente — nunca combinan ambos lados automáticamente. Para ahorrar datos móviles, las sincronizaciones normales solo traen ventas de los últimos 90 días — usa "📜 Cargar historial completo" (consume más datos) si necesitas ver/reportar ventas más viejas.</p>
 
@@ -3750,7 +3750,17 @@ async function cargarDeSheets(avisar = true, completo = false) {
     }
     db.movimientos = normalizarFilasSheet('movimientos', movimientos);
     db.facturas    = normalizarFilasSheet('facturas', facturas);
-    db.cortes      = normalizarFilasSheet('cortes', cortes);
+    // Igual que "ventas" arriba: se combina por id en vez de reemplazar
+    // completo. Antes, un simple "Descargar de Sheets" en el dispositivo del
+    // negocio borraba de golpe todo el historial de cortes guardado ahí,
+    // sustituyéndolo por lo que hubiera en Sheets en ese momento (que podía
+    // estar incompleto, p.ej. por el bug del "id" ya corregido) — así se
+    // perdieron los cierres de septiembre aunque ya estaban bien guardados
+    // localmente. Ahora una descarga solo AGREGA lo que falte, nunca borra
+    // cortes que el dispositivo ya tenía.
+    const cortesDescargados = normalizarFilasSheet('cortes', cortes);
+    const idsCortesDescargados = new Set(cortesDescargados.map(c => c.id));
+    db.cortes = [...db.cortes.filter(c => !idsCortesDescargados.has(c.id)), ...cortesDescargados];
     db.recargas    = normalizarFilasSheet('recargas', recargas);
     db.vendedores  = normalizarFilasSheet('vendedores', vendedores)
       .map(v => ({ ...v, pin: vendedorPins[v.id] || '' }));
@@ -3817,6 +3827,7 @@ function refrescarVistasTrasDescarga() {
 }
 
 async function descargarDeSheetsManual() {
+  if (bloqueadoEnSucursal()) return;
   if (!cfg.url) { toast('Configura la URL del Apps Script primero','warn'); return; }
   if ((db.productos.length || db.ventas.length) &&
       !confirm('Esto reemplazará los datos de ESTE dispositivo con los que hay en Google Sheets. ¿Continuar?')) return;
@@ -3830,6 +3841,7 @@ async function descargarDeSheetsManual() {
 // que eso — usa más datos que una descarga normal, por eso es una acción
 // aparte y no lo que pasa siempre.
 async function cargarHistorialCompleto() {
+  if (bloqueadoEnSucursal()) return;
   if (!cfg.url) { toast('Configura la URL del Apps Script primero','warn'); return; }
   if (!confirm('Esto descarga TODO el historial de ventas desde Google Sheets (consume más datos que una sincronización normal). ¿Continuar?')) return;
   const ok = await cargarDeSheets(true, true);
