@@ -5791,14 +5791,21 @@ function buildCorteQrPayload(corte) {
     fecha: corte.apertura.slice(0,10),
     hora_apertura: hhmm(corte.apertura),
     hora_cierre: hhmm(corte.cierre),
-    venta_turno: Math.round(corte.ventasTotal*100)/100,
+    // venta_turno = venta de artículos + comisión de recargas (la comisión
+    // sí es ganancia del negocio, igual que en el desglose "TOTAL A
+    // ENTREGAR" del ticket de cierre — ver buildCorteHTML()). El monto base
+    // de cada recarga NO se incluye aquí: va aparte en recargas_telefonicas
+    // porque ese dinero solo repone el saldo ya gastado, no es venta.
+    venta_turno: Math.round((corte.ventasTotal + (corte.recargasComisionTotal||0))*100)/100,
     recargas_telefonicas: Math.round((corte.recargasTotal||0)*100)/100,
     // Cuánto efectivo se le entrega físicamente a administración — depende
     // de un paso manual que NovaPOS todavía no cubre, se deja en blanco para
     // que el empleado lo complete del lado de la otra app (ver especificación).
     monto_entregado_admin: '',
     // No hay un valor de costo/mercancía distinto por ahora: se usa el total
-    // vendido como aproximación del "inventario vendido" del turno.
+    // vendido de ARTÍCULOS como aproximación del "inventario vendido" del
+    // turno — a propósito NO usa venta_turno (que ya trae la comisión de
+    // recargas sumada), porque una comisión no es mercancía.
     inventario_vendido: Math.round(corte.ventasTotal*100)/100,
     faltante: Math.round((corte.faltante||0)*100)/100,
     merma: 0.00,
