@@ -869,6 +869,7 @@ body.modo-sucursal .admin-only{display:none!important}
       <div id="caja-open" style="display:none">
         <p style="font-size:13px;color:var(--txt2);margin-bottom:14px">Caja abierta. Registra movimientos y cierra al finalizar el turno.</p>
         <button class="btn btn-danger btn-full" onclick="cerrarCaja()">⏹ Cerrar caja y generar corte</button>
+        <button class="btn btn-ghost btn-full admin-only" style="margin-top:8px;font-size:12px" onclick="cancelarAperturaCaja()">✖ Cancelar esta apertura (no genera corte)</button>
       </div>
     </div>
     <div class="card">
@@ -1401,9 +1402,9 @@ body.modo-sucursal .admin-only{display:none!important}
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-primary" onclick="guardarConfigSheets()">💾 Guardar y probar</button>
         <button class="btn btn-ghost" onclick="testConexion()">🔄 Probar conexión</button>
-        <button class="btn btn-ghost" onclick="descargarDeSheetsManual()">⬇ Descargar de Sheets</button>
+        <button class="btn btn-ghost admin-only" onclick="descargarDeSheetsManual()">⬇ Descargar de Sheets</button>
         <button class="btn btn-ghost admin-only" onclick="syncNow()">⬆ Sincronizar ahora</button>
-        <button class="btn btn-ghost" onclick="cargarHistorialCompleto()">📜 Cargar historial completo</button>
+        <button class="btn btn-ghost admin-only" onclick="cargarHistorialCompleto()">📜 Cargar historial completo</button>
       </div>
       <p style="font-size:11px;color:var(--txt2);margin-top:8px">⬇ trae lo que haya en la nube a este dispositivo (lo reemplaza aquí). ⬆ hace lo contrario: sube lo de este dispositivo y reemplaza lo que había en la nube. Úsalos según de qué lado está la información más reciente — nunca combinan ambos lados automáticamente. Para ahorrar datos móviles, las sincronizaciones normales solo traen ventas de los últimos 90 días — usa "📜 Cargar historial completo" (consume más datos) si necesitas ver/reportar ventas más viejas.</p>
 
@@ -2636,11 +2637,19 @@ function doPost(e) {
     // sin poder verificarlo y causó que un cobro real se hiciera en la
     // terminal pero NovaPOS nunca cerrara la venta ni descontara inventario).
     if (action === 'mp_crear_intent') {
+      // "items" es obligatorio para /v1/orders — sin él, Mercado Pago
+      // responde 400 "no hay artículos para cobrar" aunque el monto y la
+      // terminal estén bien. Si NovaPOS no manda el detalle del ticket, se
+      // manda un solo artículo genérico con el monto total, para que la
+      // suma siempre cuadre exacto con transactions.payments[0].amount sin
+      // importar descuentos aplicados en el ticket.
+      var mpItems = (body.items && body.items.length) ? body.items : [{ title: 'Venta NovaPOS', quantity: 1, unit_price: Number(body.amount) }];
       return mpProxy_('POST', '/v1/orders', {
         type: 'point',
         external_reference: body.externalReference || '',
         expiration_time: 'PT16M',
         transactions: { payments: [ { amount: Number(body.amount).toFixed(2) } ] },
+        items: mpItems.map(function(it) { return { title: String(it.title || 'Producto'), quantity: Number(it.quantity) || 1, unit_price: Number(it.unit_price).toFixed(2) }; }),
         config: { point: { terminal_id: body.deviceId, print_on_terminal: 'no_ticket' } },
         description: 'Venta NovaPOS',
       }, function(data) { return json({ ok:true, data: { paymentIntentId: data.id } }); });
@@ -3750,7 +3759,17 @@ async function cargarDeSheets(avisar = true, completo = false) {
     }
     db.movimientos = normalizarFilasSheet('movimientos', movimientos);
     db.facturas    = normalizarFilasSheet('facturas', facturas);
-    db.cortes      = normalizarFilasSheet('cortes', cortes);
+    // Igual que "ventas" arriba: se combina por id en vez de reemplazar
+    // completo. Antes, un simple "Descargar de Sheets" en el dispositivo del
+    // negocio borraba de golpe todo el historial de cortes guardado ahí,
+    // sustituyéndolo por lo que hubiera en Sheets en ese momento (que podía
+    // estar incompleto, p.ej. por el bug del "id" ya corregido) — así se
+    // perdieron los cierres de septiembre aunque ya estaban bien guardados
+    // localmente. Ahora una descarga solo AGREGA lo que falte, nunca borra
+    // cortes que el dispositivo ya tenía.
+    const cortesDescargados = normalizarFilasSheet('cortes', cortes);
+    const idsCortesDescargados = new Set(cortesDescargados.map(c => c.id));
+    db.cortes = [...db.cortes.filter(c => !idsCortesDescargados.has(c.id)), ...cortesDescargados];
     db.recargas    = normalizarFilasSheet('recargas', recargas);
     db.vendedores  = normalizarFilasSheet('vendedores', vendedores)
       .map(v => ({ ...v, pin: vendedorPins[v.id] || '' }));
@@ -3817,6 +3836,7 @@ function refrescarVistasTrasDescarga() {
 }
 
 async function descargarDeSheetsManual() {
+  if (bloqueadoEnSucursal()) return;
   if (!cfg.url) { toast('Configura la URL del Apps Script primero','warn'); return; }
   if ((db.productos.length || db.ventas.length) &&
       !confirm('Esto reemplazará los datos de ESTE dispositivo con los que hay en Google Sheets. ¿Continuar?')) return;
@@ -3830,6 +3850,7 @@ async function descargarDeSheetsManual() {
 // que eso — usa más datos que una descarga normal, por eso es una acción
 // aparte y no lo que pasa siempre.
 async function cargarHistorialCompleto() {
+  if (bloqueadoEnSucursal()) return;
   if (!cfg.url) { toast('Configura la URL del Apps Script primero','warn'); return; }
   if (!confirm('Esto descarga TODO el historial de ventas desde Google Sheets (consume más datos que una sincronización normal). ¿Continuar?')) return;
   const ok = await cargarDeSheets(true, true);
@@ -3958,6 +3979,12 @@ async function guardarConfigSheets() {
   // en vez de dejar la base vacía hasta que alguien le dé "Sincronizar ahora"
   // (lo cual, sin esto, terminaría subiendo vacío y borrando la hoja).
   if (cfg.url && !db.productos.length && !db.ventas.length) {
+    // Si el dispositivo no tenía nada capturado, lo único que podía haber en
+    // "caja" era la apertura de demostración (ver loadDemoData: se abre sola
+    // con fondo $1,500 desde las 8:00 a.m.) — si se deja así, en cuanto bajen
+    // las ventas reales de Sheets, el resumen del turno las suma TODAS desde
+    // esa apertura vieja, dando montos gigantes que no corresponden a nada.
+    db.caja = {abierta:false, fondo:0, fechaApertura:null};
     const ok = await cargarDeSheets();
     if (ok) refrescarVistasTrasDescarga();
   }
@@ -4127,9 +4154,9 @@ async function mpBuscarDispositivos() {
     </div>`).join('');
 }
 
-async function mpCrearIntent(amount, externalReference) {
+async function mpCrearIntent(amount, externalReference, items) {
   if (!cfg.mpDeviceId) return { ok:false, error:'No has configurado el Device ID de tu terminal (Configuración → Mercado Pago)' };
-  return sheetsPost({ action:'mp_crear_intent', deviceId: cfg.mpDeviceId, amount, externalReference });
+  return sheetsPost({ action:'mp_crear_intent', deviceId: cfg.mpDeviceId, amount, externalReference, items });
 }
 async function mpEstadoIntent(paymentIntentId) {
   return sheetsPost({ action:'mp_estado_intent', deviceId: cfg.mpDeviceId, paymentIntentId });
@@ -5215,8 +5242,18 @@ async function cobrarConMP() {
   document.getElementById('mp-cobro-status-box').className = 'cambio-box';
   setMpEstadoTexto('Creando cobro…');
 
+  // Mercado Pago exige mandar al menos un artículo en la orden (si no, la
+  // API responde 400 "no hay artículos para cobrar"). Se manda un solo
+  // renglón con el monto total en vez del detalle producto por producto,
+  // para que la suma siempre cuadre exacto con lo cobrado aunque el ticket
+  // traiga descuento aplicado.
+  const itemsMP = [{
+    title: ticket.length === 1 ? ticket[0].nombre : `Venta NovaPOS (${ticket.length} artículo${ticket.length===1?'':'s'})`,
+    quantity: 1,
+    unit_price: total,
+  }];
   const externalReference = 'novapos-' + uid();
-  const res = await mpCrearIntent(total, externalReference);
+  const res = await mpCrearIntent(total, externalReference, itemsMP);
   if (!res || !res.ok) {
     setMpEstadoTexto('Error: ' + (res && res.error ? res.error : 'no se pudo crear el cobro'));
     document.getElementById('mp-cobro-status-box').className = 'cambio-box neg';
@@ -5855,6 +5892,11 @@ function aplicarVinculacionPorQR() {
   db.productos = []; db.ventas = []; db.movimientos = []; db.facturas = [];
   db.cortes = []; db.recargas = []; db.clientes = []; db.clientesMovs = [];
   db.recargasMP = []; db.entradasInventario = []; db.turnos = [];
+  // Igual que en guardarConfigSheets(): descarta cualquier apertura de caja
+  // que hubiera quedado de antes de vincular (típicamente la de demo) — si
+  // no, el resumen del turno sumaría de golpe todas las ventas reales que
+  // se descarguen a continuación, desde esa apertura vieja.
+  db.caja = {abierta:false, fondo:0, fechaApertura:null};
   save();
   saveCfg();
   history.replaceState({}, '', location.pathname);
@@ -6103,6 +6145,23 @@ async function abrirCaja() {
     console.error('[NovaPOS] Error al abrir caja:', err);
     toast('No se pudo abrir la caja: ' + err.message, 'err');
   }
+}
+
+// Válvula de escape para cuando la caja quedó "abierta" por error y no
+// corresponde a un turno real (p.ej. la apertura de demostración que se
+// crea sola en un dispositivo nuevo antes de conectar Google Sheets, o una
+// apertura vieja que nadie cerró) — a diferencia de Cerrar caja, esto NO
+// calcula nada ni genera ningún corte, solo descarta el estado local.
+async function cancelarAperturaCaja() {
+  if (bloqueadoEnSucursal()) return;
+  if (!db.caja.abierta) return;
+  if (!confirm('¿Cancelar esta apertura de caja SIN generar corte? Úsalo solo si se abrió por error (por ejemplo, quedó abierta desde hace días o es la apertura de demostración) — no quedará ningún registro de este "cierre".')) return;
+  db.caja = {abierta:false, fondo:0, fechaApertura:null};
+  save();
+  document.getElementById('caja-closed').style.display='block';
+  document.getElementById('caja-open').style.display='none';
+  updateBadge(); renderCaja();
+  toast('Apertura cancelada — no se generó ningún corte', 'warn');
 }
 
 // Junta los movimientos/ventas/recargas de ESTE turno (acotados a
