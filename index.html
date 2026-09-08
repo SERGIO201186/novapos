@@ -3076,13 +3076,19 @@ const SERVICIOS_COPIAS = [
   { barcode:'SERV-IMPRESION-BN-DOC',    nombre:'Descarga e impresión B/N (CURP, IMSS, ISSSTE)', precio:10, unidad:'documento' },
   { barcode:'SERV-COPIA-COLOR',         nombre:'Copia/impresión a color', precio:5, unidad:'copia' },
   { barcode:'SERV-IMPRESION-COLOR-DOC', nombre:'Descarga e impresión a color (CURP, IMSS, ISSSTE)', precio:10, unidad:'documento' },
+  // Impresión suelta en blanco y negro (distinta de "Descarga e impresión
+  // B/N" de arriba, que es específica para documentos tipo CURP/IMSS/ISSSTE)
+  // — costo:3 es lo que le cuesta al negocio (tóner/papel) por hoja; precio
+  // de venta con margen de $2 sobre ese costo, ajustable después en
+  // Inventario si el negocio cobra distinto.
+  { barcode:'SERV-IMPRESION-BN',        nombre:'Impresión en blanco y negro', precio:5, costo:3, unidad:'hoja' },
 ];
 
 function sembrarServiciosCopias() {
   let agregado = false;
   SERVICIOS_COPIAS.forEach(s => {
     if (db.productos.some(p => p.barcode === s.barcode)) return;
-    const p = { id: uid(), sku: s.barcode, barcode: s.barcode, nombre: s.nombre, cat: 'Copias e impresiones', proveedor: '', precio: s.precio, costo: 0, stock: 999990, stockmin: 0, vence: '', unidad: s.unidad, desc: '' };
+    const p = { id: uid(), sku: s.barcode, barcode: s.barcode, nombre: s.nombre, cat: 'Copias e impresiones', proveedor: '', precio: s.precio, costo: s.costo || 0, stock: 999990, stockmin: 0, vence: '', unidad: s.unidad, desc: '' };
     db.productos.push(p);
     agregado = true;
     if (cfg.url) sheetsUpsert('productos', p);
