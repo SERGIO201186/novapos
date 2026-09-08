@@ -360,7 +360,7 @@ const SHEET_HEADERS = {
   // de agregar una nueva. Resultado: la hoja nunca acumulaba más de un corte
   // a la vez. Con "id" agregado, el corte se identifica igual que cualquier
   // otra hoja y cada cierre de caja sí agrega su propia fila.
-  cortes:      ['id','apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','folio','codigoEmpleado','efectivoEsperado','efectivoContado','faltante','sucursal','fiadoCount','fiadoTotal','contAperturaBn','contAperturaColor','contAperturaImpBn','contAperturaImpColor','contCierreBn','contCierreColor','contCierreImpBn','contCierreImpColor'],
+  cortes:      ['id','apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','recargasComisionTotal','folio','codigoEmpleado','efectivoEsperado','efectivoContado','faltante','sucursal','fiadoCount','fiadoTotal','contAperturaBn','contAperturaColor','contAperturaImpBn','contAperturaImpColor','contCierreBn','contCierreColor','contCierreImpBn','contCierreImpColor'],
   vendedores:  ['id','nombre','codigoEmpleado'],
   config:      ['key','value'],
   // Clientes para venta a crédito ("fiado") — "saldo" es lo que debe
@@ -374,6 +374,12 @@ const SHEET_HEADERS = {
   // flujo normal de "recargas" de NovaPOS) — se capturan a mano al cerrar
   // caja porque la app no tiene forma de enterarse de esas operaciones.
   recargas_mp: ['id','fecha','folioOTelefono','monto','comision','corteFolio','sucursal'],
+  // Cargas de saldo para recargas telefónicas — cada vez que el negocio
+  // recarga su cuenta con el proveedor/agente real, queda un renglón aquí.
+  // El saldo disponible (ver calcularSaldoRecargas() en NovaPOS) se calcula
+  // sumando estos montos y restando el monto (sin comisión) de cada recarga
+  // ya registrada en "recargas".
+  recarga_saldo_movs: ['id','fecha','monto','nota','vendedor','sucursal'],
   // Kardex de entradas de mercancía — separado de "movimientos" (que es
   // dinero, ingresos/egresos de caja) para poder comparar entradas vs.
   // ventas vs. conteo físico y saber si una merma es real o solo mal
