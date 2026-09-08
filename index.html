@@ -1171,7 +1171,7 @@ body.modo-sucursal .admin-only{display:none!important}
   <div id="r-cortes" style="display:none">
     <div class="tbl-wrap">
       <table>
-        <thead><tr><th>Apertura</th><th>Cierre</th><th>Vendedor</th><th>Fondo</th><th>Ingresos</th><th>Egresos</th><th>Saldo final</th></tr></thead>
+        <thead><tr><th>Folio</th><th>Apertura</th><th>Cierre</th><th>Vendedor</th><th>Fondo</th><th>Ingresos</th><th>Egresos</th><th>Saldo final</th><th></th></tr></thead>
         <tbody id="rc-tbody"></tbody>
       </table>
     </div>
@@ -5791,14 +5791,21 @@ function buildCorteQrPayload(corte) {
     fecha: corte.apertura.slice(0,10),
     hora_apertura: hhmm(corte.apertura),
     hora_cierre: hhmm(corte.cierre),
-    venta_turno: Math.round(corte.ventasTotal*100)/100,
+    // venta_turno = venta de artículos + comisión de recargas (la comisión
+    // sí es ganancia del negocio, igual que en el desglose "TOTAL A
+    // ENTREGAR" del ticket de cierre — ver buildCorteHTML()). El monto base
+    // de cada recarga NO se incluye aquí: va aparte en recargas_telefonicas
+    // porque ese dinero solo repone el saldo ya gastado, no es venta.
+    venta_turno: Math.round((corte.ventasTotal + (corte.recargasComisionTotal||0))*100)/100,
     recargas_telefonicas: Math.round((corte.recargasTotal||0)*100)/100,
     // Cuánto efectivo se le entrega físicamente a administración — depende
     // de un paso manual que NovaPOS todavía no cubre, se deja en blanco para
     // que el empleado lo complete del lado de la otra app (ver especificación).
     monto_entregado_admin: '',
     // No hay un valor de costo/mercancía distinto por ahora: se usa el total
-    // vendido como aproximación del "inventario vendido" del turno.
+    // vendido de ARTÍCULOS como aproximación del "inventario vendido" del
+    // turno — a propósito NO usa venta_turno (que ya trae la comisión de
+    // recargas sumada), porque una comisión no es mercancía.
     inventario_vendido: Math.round(corte.ventasTotal*100)/100,
     faltante: Math.round((corte.faltante||0)*100)/100,
     merma: 0.00,
@@ -6977,8 +6984,9 @@ function renderTop() {
 
 function renderCortes() {
   const tbody=document.getElementById('rc-tbody');
-  if(!db.cortes.length){tbody.innerHTML=`<tr><td colspan="7" style="text-align:center;color:var(--txt2);padding:20px">Sin cortes</td></tr>`;}
+  if(!db.cortes.length){tbody.innerHTML=`<tr><td colspan="9" style="text-align:center;color:var(--txt2);padding:20px">Sin cortes</td></tr>`;}
   else tbody.innerHTML=[...db.cortes].reverse().map(c=>`<tr>
+    <td><span class="badge badge-indigo">${esc(c.folio||'—')}</span></td>
     <td style="font-size:11px">${new Date(c.apertura).toLocaleString('es-MX',{dateStyle:'short',timeStyle:'short'})}</td>
     <td style="font-size:11px">${new Date(c.cierre).toLocaleString('es-MX',{dateStyle:'short',timeStyle:'short'})}</td>
     <td style="font-size:12px">${esc(c.vendedor)||'—'}</td>
@@ -6986,8 +6994,19 @@ function renderCortes() {
     <td style="font-family:var(--mono);color:var(--verde)">${mxn(c.ingresos)}</td>
     <td style="font-family:var(--mono);color:var(--rojo)">${mxn(c.egresos)}</td>
     <td style="font:600 14px var(--mono)">${mxn(c.saldoFinal)}</td>
+    <td><button class="btn btn-ghost btn-sm" onclick="reimprimirCorte('${c.id}')" title="Reimprimir ticket de este corte">🖨</button></td>
   </tr>`).join('');
   renderFaltantesPorVendedor();
+}
+
+// Reimprime el ticket de un corte ya cerrado — busca el registro completo
+// por id (renderCortes() solo pinta lo visible en la tabla) y reusa
+// imprimirCorte(), la misma función que genera el ticket al momento de
+// cerrar caja, así que sale idéntico (mismo desglose y mismo QR).
+function reimprimirCorte(id) {
+  const corte = db.cortes.find(c => c.id === id);
+  if (!corte) { toast('No se encontró ese corte','err'); return; }
+  imprimirCorte(corte);
 }
 
 // Suma TODOS los cortes históricos de cada vendedor (no solo el período de
