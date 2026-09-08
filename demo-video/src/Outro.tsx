@@ -1,8 +1,10 @@
 import {
   AbsoluteFill,
+  Audio,
   Easing,
   Interactive,
   interpolate,
+  staticFile,
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
@@ -38,6 +40,7 @@ export const Outro: React.FC = () => {
         alignItems: "center",
       }}
     >
+      <Audio src={staticFile("audio/08-outro.mp3")} />
       <Interactive.Div
         name="Title"
         style={{

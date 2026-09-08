@@ -1,5 +1,6 @@
 import {
   AbsoluteFill,
+  Audio,
   Easing,
   Img,
   Interactive,
@@ -28,9 +29,10 @@ type SceneProps = {
   title: string;
   subtitle: string;
   image: string;
+  narration?: string;
 };
 
-export const Scene: React.FC<SceneProps> = ({ eyebrow, title, subtitle, image }) => {
+export const Scene: React.FC<SceneProps> = ({ eyebrow, title, subtitle, image, narration }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
@@ -59,6 +61,7 @@ export const Scene: React.FC<SceneProps> = ({ eyebrow, title, subtitle, image })
 
   return (
     <AbsoluteFill name="Scene" style={{ backgroundColor: COLORS.bg, fontFamily: FONT_STACK }}>
+      {narration ? <Audio src={staticFile(narration)} /> : null}
       <AbsoluteFill
         style={{
           background: `linear-gradient(180deg, ${COLORS.greenLight} 0%, ${COLORS.bg} 340px)`,
