@@ -6356,8 +6356,17 @@ async function registrarMov() {
 
 function renderCaja() {
   actualizarCamposContadorImpresora();
+  // Se acota al turno ACTUALMENTE abierto (desde su propia hora de
+  // apertura), no al día calendario completo. Antes usaba
+  // fecha.startsWith(hoy()), así que si cerrabas un turno (con su propio
+  // corte) y abrías uno nuevo el mismo día, la venta del turno YA CERRADO
+  // se seguía sumando aquí encima del fondo nuevo — daba la impresión de
+  // que "la venta anterior" seguía apareciendo en vez de arrancar limpio.
+  // Sin una caja abierta (antes de dar "Abrir caja") no hay turno del cual
+  // acotar, así que se usa el día completo nada más como referencia general.
   const h = hoy();
-  const movH = db.movimientos.filter(m=>m.fecha.startsWith(h));
+  const desde = (db.caja.abierta && db.caja.fechaApertura) ? db.caja.fechaApertura : h;
+  const movH = db.movimientos.filter(m=>m.fecha >= desde);
   const movIngresos = movH.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+m.monto,0);
   const egr  = movH.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+m.monto,0);
   // Las recargas ya no generan movimiento (ver procesarRecarga()), así que
@@ -6365,10 +6374,10 @@ function renderCaja() {
   // en vivo en "Ingresos hoy"/"Saldo en caja" sin duplicarse en la lista
   // de Movimientos. Se suma el monto (repone el saldo cargado) y la
   // comisión (ganancia real) — ambos se cobran en efectivo en el mostrador.
-  const recargasCompletadasHoy = (db.recargas||[]).filter(r=>r.fecha.startsWith(h) && r.estatus==='completada');
+  const recargasCompletadasHoy = (db.recargas||[]).filter(r=>r.fecha >= desde && r.estatus==='completada');
   const recargasHoy = recargasCompletadasHoy.reduce((s,r)=>s+r.monto+(r.comisionFija||0),0);
   const ing  = movIngresos + recargasHoy;
-  const vtasH= db.ventas.filter(v=>v.fecha.startsWith(h)).length;
+  const vtasH= db.ventas.filter(v=>v.fecha >= desde).length;
   // A propósito NO incluye el fondo — es el movimiento del día (ventas +
   // recargas + ingresos manuales - egresos), para que arranque en $0.00 al
   // abrir la caja en vez de mostrar de entrada el fondo como si fuera
