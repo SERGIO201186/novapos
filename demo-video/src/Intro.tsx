@@ -74,7 +74,7 @@ export const Intro: React.FC = () => {
           letterSpacing: -2,
         }}
       >
-        PapelPOS
+        NovaPOS PRO
       </Interactive.Div>
       <Interactive.Div
         name="Subtitle"

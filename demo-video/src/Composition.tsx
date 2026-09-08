@@ -4,7 +4,7 @@ import { DemoVideo, TOTAL_DURATION_IN_FRAMES } from "./DemoVideo";
 export const MyComposition = () => {
   return (
     <Composition
-      id="PapelPOS-Demo"
+      id="NovaPOS-Demo"
       component={DemoVideo}
       durationInFrames={TOTAL_DURATION_IN_FRAMES}
       fps={30}

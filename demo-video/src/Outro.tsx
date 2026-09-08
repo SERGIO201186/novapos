@@ -108,7 +108,7 @@ export const Outro: React.FC = () => {
           color: "#D7F5E3",
         }}
       >
-        PapelPOS — powered by NovaPOS
+        NovaPOS PRO — by Omnia Technology
       </Interactive.Div>
     </AbsoluteFill>
   );
