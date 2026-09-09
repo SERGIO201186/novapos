@@ -549,7 +549,15 @@ const SHEET_HEADERS = {
   // de agregar una nueva. Resultado: la hoja nunca acumulaba más de un corte
   // a la vez. Con "id" agregado, el corte se identifica igual que cualquier
   // otra hoja y cada cierre de caja sí agrega su propia fila.
-  cortes:      ['id','apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','recargasComisionTotal','folio','codigoEmpleado','efectivoEsperado','efectivoContado','faltante','sucursal','fiadoCount','fiadoTotal','contAperturaBn','contAperturaColor','contAperturaImpBn','contAperturaImpColor','contCierreBn','contCierreColor','contCierreImpBn','contCierreImpColor'],
+  // copiasImpresionesVendidasTotal/Count/Detalle: el "Resumen de turno" que
+  // imprime NovaPOS trae una sección aparte, "Copias e impresiones
+  // vendidas" (dinero cobrado por copias/impresiones, distinto del
+  // "Contador de impresora" que son solo lecturas del medidor), con una fila
+  // por tipo de copia (p.ej. "Copia B/N carta $18.00 (9)"). Como el número
+  // de tipos varía según el catálogo de precios, el detalle se guarda como
+  // JSON (mismo patrón que "items" en la hoja "ventas") y Total/Count quedan
+  // aparte para poder sumarlos sin tener que parsear el JSON cada vez.
+  cortes:      ['id','apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','recargasComisionTotal','folio','codigoEmpleado','efectivoEsperado','efectivoContado','faltante','sucursal','fiadoCount','fiadoTotal','contAperturaBn','contAperturaColor','contAperturaImpBn','contAperturaImpColor','contCierreBn','contCierreColor','contCierreImpBn','contCierreImpColor','copiasImpresionesVendidasTotal','copiasImpresionesVendidasCount','copiasImpresionesVendidasDetalle'],
   vendedores:  ['id','nombre','codigoEmpleado'],
   config:      ['key','value'],
   // Clientes para venta a crédito ("fiado") — "saldo" es lo que debe
