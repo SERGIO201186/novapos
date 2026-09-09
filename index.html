@@ -5818,6 +5818,28 @@ function buildCorteQrPayload(corte) {
   });
 }
 
+// Desglose de copias/impresiones vendidas en una ventana de tiempo — se
+// recalcula desde db.ventas en vez de leerse de un total ya guardado,
+// porque es la fuente de verdad (la venta real de cada servicio de copia,
+// ver SERVICIOS_COPIAS). Usada por buildCorteHTML() para el ticket/correo
+// Y por confirmarCierreCaja() para guardar el total en el corte — antes
+// solo vivía aquí, porque "solo hacía falta al imprimir", pero Legado
+// Integral (la app de registro de turno del empleado) no tiene forma de
+// recalcularlo por su cuenta: solo puede leer lo que ya quedó guardado en
+// la hoja "cortes" vía Google Sheets, así que ahora también se guarda ahí.
+function calcularDesgloseCopias(apertura, cierre) {
+  if (!cfg.controlCopias) return [];
+  const barcodesCopias = new Set(SERVICIOS_COPIAS.map(s => s.barcode));
+  const mapa = {};
+  db.ventas.filter(v => v.fecha >= apertura && v.fecha <= cierre).forEach(v => v.items.forEach(i => {
+    if (!barcodesCopias.has(i.barcode)) return;
+    if (!mapa[i.barcode]) mapa[i.barcode] = { nombre: i.nombre, qty: 0, total: 0 };
+    mapa[i.barcode].qty += i.qty;
+    mapa[i.barcode].total += i.precio * i.qty;
+  }));
+  return Object.values(mapa);
+}
+
 function buildCorteHTML(corte) {
   const negocio = esc(cfg.nombre || 'Mi Negocio');
   const fFmt = d => `${d.toLocaleDateString('es-MX',{day:'2-digit',month:'2-digit',year:'numeric'})} ${d.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}`;
@@ -5832,21 +5854,7 @@ function buildCorteHTML(corte) {
   const tieneContadores = corte.contCierreBn !== undefined && corte.contCierreBn !== '';
   const usoContador = (aper, cierre) => (aper!==''&&aper!=null && cierre!==''&&cierre!=null) ? (cierre-aper) : '—';
 
-  // Desglose de copias/impresiones vendidas en el turno — se recalcula aquí
-  // mismo desde db.ventas (por fecha, dentro de la ventana del corte) en vez
-  // de guardarse en el corte, porque solo hace falta al momento de imprimir.
-  let desgloseCopias = [];
-  if (cfg.controlCopias) {
-    const barcodesCopias = new Set(SERVICIOS_COPIAS.map(s => s.barcode));
-    const mapa = {};
-    db.ventas.filter(v => v.fecha >= corte.apertura && v.fecha <= corte.cierre).forEach(v => v.items.forEach(i => {
-      if (!barcodesCopias.has(i.barcode)) return;
-      if (!mapa[i.barcode]) mapa[i.barcode] = { nombre: i.nombre, qty: 0, total: 0 };
-      mapa[i.barcode].qty += i.qty;
-      mapa[i.barcode].total += i.precio * i.qty;
-    }));
-    desgloseCopias = Object.values(mapa);
-  }
+  const desgloseCopias = calcularDesgloseCopias(corte.apertura, corte.cierre);
 
   const tieneRecargasMP = corte.recargasMPComisionTotal !== undefined;
   const tieneRecargasTel = corte.recargasCount > 0;
@@ -6304,6 +6312,13 @@ async function confirmarCierreCaja() {
     corte.contCierreColor = contadoresCierre.color;
     corte.contCierreImpBn = contadoresCierre.impBn;
     corte.contCierreImpColor = contadoresCierre.impColor;
+    // Total de copias/impresiones VENDIDAS (dinero cobrado) — antes solo se
+    // calculaba al imprimir el ticket (buildCorteHTML), nunca se guardaba
+    // en el corte. Ver calcularDesgloseCopias().
+    const desgloseCopias = calcularDesgloseCopias(resumen.apertura, resumen.cierre);
+    corte.copiasImpresionesVendidasTotal = Math.round(desgloseCopias.reduce((s,d)=>s+d.total,0)*100)/100;
+    corte.copiasImpresionesVendidasCount = desgloseCopias.reduce((s,d)=>s+d.qty,0);
+    corte.copiasImpresionesVendidasDetalle = JSON.stringify(desgloseCopias);
   }
   // Recargas de terminal MP capturadas en este mismo modal (ver
   // agregarRecargaMPCierre()) — el total de comisión se suma al corte para
