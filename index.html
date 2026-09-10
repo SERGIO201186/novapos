@@ -5790,6 +5790,12 @@ function aplicarVinculacionPorQR() {
 // con ese otro sistema, que todavía no existe de ese lado.
 function buildCorteQrPayload(corte) {
   const hhmm = iso => new Date(iso).toTimeString().slice(0,5);
+  // Unidades que avanzó el medidor físico entre apertura y cierre — mismo
+  // cálculo que usoContador() en buildCorteHTML(). Si el negocio no tiene
+  // activado "Copias e impresiones" (cfg.controlCopias) el corte nunca trae
+  // estos campos, así que da 0: es lectura de equipo, no dinero, y 0 unidades
+  // usadas es la lectura correcta de "no se llevó control este turno".
+  const usados = (aper, cierre) => (aper!==''&&aper!=null && cierre!==''&&cierre!=null) ? (cierre-aper) : 0;
   return JSON.stringify({
     v: 1,
     folio: corte.folio,
@@ -5815,6 +5821,20 @@ function buildCorteQrPayload(corte) {
     inventario_vendido: Math.round(corte.ventasTotal*100)/100,
     faltante: Math.round((corte.faltante||0)*100)/100,
     merma: 0.00,
+    // Contador de impresora: cuántas copias/impresiones marcó el medidor
+    // físico en este turno, por tipo — ver el bloque "🖨️ CONTADOR DE
+    // IMPRESORA" del ticket (buildCorteHTML()). Es la lectura de equipo, no
+    // el dinero cobrado; sirve para que Legado Integral pueda cuadrar uso del
+    // equipo contra lo efectivamente vendido (siguiente campo).
+    copias_bn_usadas: usados(corte.contAperturaBn, corte.contCierreBn),
+    copias_color_usadas: usados(corte.contAperturaColor, corte.contCierreColor),
+    impresiones_bn_usadas: usados(corte.contAperturaImpBn, corte.contCierreImpBn),
+    impresiones_color_usadas: usados(corte.contAperturaImpColor, corte.contCierreImpColor),
+    // Dinero cobrado en el turno por copias/impresiones vendidas, según el
+    // catálogo de precios de NovaPOS (ver SERVICIOS_COPIAS y
+    // calcularDesgloseCopias()) — para cuadrar contra el uso del medidor de
+    // arriba. 0 si "Copias e impresiones" no está activo o no se vendió nada.
+    copias_impresiones_vendido: Math.round((corte.copiasImpresionesVendidasTotal || 0)*100)/100,
   });
 }
 

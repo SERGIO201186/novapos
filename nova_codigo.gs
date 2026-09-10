@@ -306,6 +306,11 @@ function handleConfirmarTurno_(body) {
     inventario_vendido: Number(body.inventario_vendido) || 0,
     faltante: Number(body.faltante) || 0,
     merma: Number(body.merma) || 0,
+    copias_bn_usadas: Number(body.copias_bn_usadas) || 0,
+    copias_color_usadas: Number(body.copias_color_usadas) || 0,
+    impresiones_bn_usadas: Number(body.impresiones_bn_usadas) || 0,
+    impresiones_color_usadas: Number(body.impresiones_color_usadas) || 0,
+    copias_impresiones_vendido: Number(body.copias_impresiones_vendido) || 0,
     confirmado_en: new Date().toISOString(),
   };
   const row = headers.map(h => registro[h] ?? '');
@@ -591,7 +596,12 @@ const SHEET_HEADERS = {
   // duplica los datos de "cortes", solo agrega lo que el empleado confirma
   // desde esta app — sobre todo monto_entregado_admin, que NovaPOS deja en
   // blanco a propósito porque ese paso es manual.
-  legado_turnos: ['id','folio','codigoEmpleado','nombreEmpleado','fecha','hora_apertura','hora_cierre','venta_turno','recargas_telefonicas','monto_entregado_admin','inventario_vendido','faltante','merma','confirmado_en'],
+  // copias_bn_usadas/copias_color_usadas/impresiones_bn_usadas/
+  // impresiones_color_usadas/copias_impresiones_vendido: mismos campos que
+  // trae el QR desde buildCorteQrPayload() — lectura del medidor de la
+  // impresora (uso) y dinero cobrado por copias/impresiones (venta), en 0
+  // cuando el negocio no tiene activo "Copias e impresiones" en NovaPOS.
+  legado_turnos: ['id','folio','codigoEmpleado','nombreEmpleado','fecha','hora_apertura','hora_cierre','venta_turno','recargas_telefonicas','monto_entregado_admin','inventario_vendido','faltante','merma','copias_bn_usadas','copias_color_usadas','impresiones_bn_usadas','impresiones_color_usadas','copias_impresiones_vendido','confirmado_en'],
 };
 
 function getSheet(name) {
