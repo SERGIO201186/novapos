@@ -2653,10 +2653,16 @@ function doPost(e) {
       // seguridad, así que el QR simplemente desaparecía del correo aunque
       // se veía bien al imprimir el ticket.
       if (body.qrPngBase64) {
-        opciones.inlineImages = { corte_qr: Utilities.newBlob(Utilities.base64Decode(body.qrPngBase64), 'image/png', 'corte_qr.png') };
+        const qrBlob = Utilities.newBlob(Utilities.base64Decode(body.qrPngBase64), 'image/png', 'corte_qr.png');
+        opciones.inlineImages = { corte_qr: qrBlob };
+        // TEMPORAL, para diagnosticar por qué el QR inline no se ve en
+        // algunos clientes: se manda TAMBIÉN como adjunto normal
+        // descargable. Si el adjunto sí abre como un QR válido, el
+        // problema es solo la referencia cid: inline, no la imagen en sí.
+        opciones.attachments = [qrBlob];
       }
       MailApp.sendEmail(opciones);
-      return json({ok:true});
+      return json({ok:true, qrBytesLength: body.qrPngBase64 ? Utilities.base64Decode(body.qrPngBase64).length : 0});
     }
 
     // Cobro con terminal física Mercado Pago Point. El Access Token vive en
