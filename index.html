@@ -864,7 +864,10 @@ body.modo-sucursal .admin-only{display:none!important}
             <div class="field" style="margin:0"><label>Impresiones color</label><input type="number" id="caja-cont-imp-color" min="0" placeholder="0"></div>
           </div>
         </div>
-        <button class="btn btn-primary btn-full" onclick="abrirCaja()">▶ Abrir caja</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary" style="flex:1" onclick="abrirCaja()">▶ Abrir caja</button>
+          <button class="btn btn-ghost" onclick="abrirModalTerminalMp(false)" title="Buscar/vincular la terminal Mercado Pago">💳 Terminal MP</button>
+        </div>
       </div>
       <div id="caja-open" style="display:none">
         <p style="font-size:13px;color:var(--txt2);margin-bottom:14px">Caja abierta. Registra movimientos y cierra al finalizar el turno.</p>
@@ -1673,6 +1676,53 @@ body.modo-sucursal .admin-only{display:none!important}
     </div>
     <div id="vincular-qr-box" style="display:flex;justify-content:center;margin:14px 0"></div>
     <button class="btn btn-ghost btn-full" onclick="closeModal('modal-vincular-dispositivo')">Cerrar</button>
+  </div>
+</div>
+
+<!-- Vincular terminal Mercado Pago — se abre SIEMPRE justo después de abrir
+     caja (obligatoria, sin botón de cerrar) para que nunca falte el Device
+     ID a la hora de necesitar cobrar con tarjeta; el botón "💳 Terminal MP"
+     junto a "Abrir caja" abre la misma ventana bajo demanda (esa versión sí
+     se puede cerrar sin guardar, porque no es el candado obligatorio). Usa
+     los mismos endpoints que Configuración → Mercado Pago
+     (mpBuscarDispositivos()), solo que apuntando a estos otros campos. -->
+<div class="modal-bg" id="modal-terminal-mp">
+  <div class="modal" style="max-width:400px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px">
+      <h3 id="modal-terminal-mp-titulo" style="margin:0">💳 Terminal Mercado Pago</h3>
+      <button id="modal-terminal-mp-cerrar" class="btn btn-ghost btn-sm" onclick="closeModal('modal-terminal-mp')">✕</button>
+    </div>
+    <p id="modal-terminal-mp-msg" style="font-size:12px;color:var(--txt2);margin-bottom:12px"></p>
+    <div id="tmp-dispositivos-status" class="sheets-status">
+      <span id="tmp-dispositivos-dot">⚪</span>
+      <span id="tmp-dispositivos-txt">Sin buscar todavía</span>
+    </div>
+    <div class="field">
+      <label>Device ID de tu terminal</label>
+      <input id="tmp-mp-device-id" placeholder="Ej. GERTEC_MP35P__8701016695109435">
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-ghost" onclick="mpBuscarDispositivos('tmp','tmp-mp-device-id')">🔍 Buscar terminal</button>
+      <button class="btn btn-primary" onclick="guardarTerminalMpApertura()">💾 Guardar y continuar</button>
+    </div>
+    <div id="tmp-dispositivos-list" style="margin-top:10px;font-size:12px"></div>
+  </div>
+</div>
+
+<!-- Sincronizar antes de imprimir el ticket de cierre — obligatoria (sin
+     botón de cerrar): un solo toque en "Sincronizar ahora" sube TODO lo de
+     este dispositivo a Google Sheets (mismo reemplazo total que ⬆
+     Sincronizar ahora en Configuración, ver syncNow()/subirSyncCompleto_())
+     y, solo si terminó bien, esta ventana se cierra sola y manda a imprimir
+     el ticket — así el ticket y la próxima apertura siempre parten de
+     información ya subida a la nube. Ver abrirModalSyncCierre() /
+     sincronizarYCerrarModalCierre(), llamadas desde confirmarCierreCaja(). -->
+<div class="modal-bg" id="modal-sync-cierre">
+  <div class="modal" style="max-width:360px;text-align:center">
+    <div style="font-size:32px;margin-bottom:8px">☁️</div>
+    <h3 style="margin-bottom:8px">Sincroniza antes de imprimir</h3>
+    <p style="font-size:13px;color:var(--txt2);margin-bottom:16px">Sube la información de este cierre — ventas, inventario, recargas y contador de la impresora — a Google Sheets, para que el ticket y la próxima apertura de caja partan de datos actualizados.</p>
+    <button class="btn btn-primary btn-full" id="cierre-sync-btn" onclick="sincronizarYCerrarModalCierre()">⬆ Sincronizar ahora</button>
   </div>
 </div>
 
@@ -3613,15 +3663,16 @@ function saveAndDeleteFast(sheet, id) {
     .catch(() => setSyncState('error'));
 }
 
-async function syncNow() {
-  if (bloqueadoEnSucursal()) return;
-  if (!cfg.url) { toast('Configura la URL del Apps Script primero','warn'); return; }
-  // 'sync_all' reemplaza TODO lo que hay en la hoja con lo de este dispositivo
-  // (ver doPost en APPS_SCRIPT_CODE) — es de una sola vía, no combina con lo
-  // que ya esté en la nube. Confirmar explícitamente evita que un dispositivo
-  // con base local vacía/vieja borre por accidente lo que subieron otros.
-  const resumen = `${db.productos.length} productos, ${db.ventas.length} ventas, ${(db.facturas||[]).length} facturas, ${(db.recargas||[]).length} recargas`;
-  if (!confirm(`Esto va a REEMPLAZAR todo lo que hay en Google Sheets con los datos de ESTE dispositivo (${resumen}).\n\nSi otro dispositivo tiene información que no está aquí, se perderá. ¿Continuar?`)) return;
+// Núcleo del reemplazo total ("sync_all") — lo comparten el botón manual de
+// Configuración (syncNow(), que sí pide confirmación con confirm() porque
+// se puede disparar por accidente en cualquier momento) y la ventana
+// obligatoria de cierre de caja (sincronizarYCerrarModalCierre(), que no
+// repite esa confirmación porque ya es, en sí misma, un paso explícito de
+// un solo toque dentro de un flujo guiado que el cajero no puede saltarse).
+// Regresa {ok, error} en vez de solo avisar con un toast, para que quien
+// llama decida qué hacer según el resultado (el modal de cierre necesita
+// saber si ya puede cerrarse e imprimir, o si debe dejar reintentar).
+async function subirSyncCompleto_() {
   setSyncState('syncing');
   try {
     const res = await sheetsPost({
@@ -3648,11 +3699,24 @@ async function syncNow() {
     });
     const ok = !!(res && res.ok);
     setSyncState(ok ? 'ok' : 'error');
-    toast(ok ? 'Sincronizado con Google Sheets ✓' : ('Error al sincronizar' + (res && res.error ? ': ' + res.error : '')), ok ? 'ok' : 'err');
+    return { ok, error: res && res.error };
   } catch(e) {
     setSyncState('error');
-    toast('Error de conexión: ' + e.message, 'err');
+    return { ok:false, error: e.message };
   }
+}
+
+async function syncNow() {
+  if (bloqueadoEnSucursal()) return;
+  if (!cfg.url) { toast('Configura la URL del Apps Script primero','warn'); return; }
+  // 'sync_all' reemplaza TODO lo que hay en la hoja con lo de este dispositivo
+  // (ver doPost en APPS_SCRIPT_CODE) — es de una sola vía, no combina con lo
+  // que ya esté en la nube. Confirmar explícitamente evita que un dispositivo
+  // con base local vacía/vieja borre por accidente lo que subieron otros.
+  const resumen = `${db.productos.length} productos, ${db.ventas.length} ventas, ${(db.facturas||[]).length} facturas, ${(db.recargas||[]).length} recargas`;
+  if (!confirm(`Esto va a REEMPLAZAR todo lo que hay en Google Sheets con los datos de ESTE dispositivo (${resumen}).\n\nSi otro dispositivo tiene información que no está aquí, se perderá. ¿Continuar?`)) return;
+  const { ok, error } = await subirSyncCompleto_();
+  toast(ok ? 'Sincronizado con Google Sheets ✓' : ('Error al sincronizar' + (error ? ': ' + error : '')), ok ? 'ok' : 'err');
 }
 
 // Google Sheets adivina el tipo de cada celda: un código de barras o un
@@ -4041,11 +4105,15 @@ function guardarConfigMpDevice() {
   toast(v ? 'Device ID guardado ✓' : 'Device ID borrado ✓');
 }
 
-async function mpBuscarDispositivos() {
+// prefix/deviceInputId: por default apunta a los campos de Configuración
+// (mp-dispositivos-*, cfg-mp-device-id) — el modal obligatorio de apertura
+// de caja llama a esto mismo con ('tmp','tmp-mp-device-id') para reusar la
+// búsqueda sin duplicar la lógica de la API de Mercado Pago.
+async function mpBuscarDispositivos(prefix = 'mp', deviceInputId = 'cfg-mp-device-id') {
   if (!cfg.url) { toast('Configura primero la URL de Google Sheets','warn'); return; }
-  const dot = document.getElementById('mp-dispositivos-dot');
-  const txt = document.getElementById('mp-dispositivos-txt');
-  const list = document.getElementById('mp-dispositivos-list');
+  const dot = document.getElementById(prefix + '-dispositivos-dot');
+  const txt = document.getElementById(prefix + '-dispositivos-txt');
+  const list = document.getElementById(prefix + '-dispositivos-list');
   dot.textContent = '🟡'; txt.textContent = 'Buscando…'; list.innerHTML = '';
   const res = await sheetsPost({ action: 'mp_listar_dispositivos' });
   if (!res || !res.ok) {
@@ -4064,8 +4132,36 @@ async function mpBuscarDispositivos() {
   list.innerHTML = dispositivos.map(d => `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-top:1px solid var(--border)">
       <span style="font-family:var(--mono)">${esc(d.id || d.device_id || '')}</span>
-      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('cfg-mp-device-id').value='${esc(d.id || d.device_id || '')}'">Usar esta</button>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('${deviceInputId}').value='${esc(d.id || d.device_id || '')}'">Usar esta</button>
     </div>`).join('');
+}
+
+// Ventana de vinculación de terminal — obligatoria=true la usa abrirCaja()
+// (sin botón de cerrar, hasta que se guarde un Device ID) y obligatoria=false
+// el botón "💳 Terminal MP" junto a "Abrir caja" (se puede cerrar sin tocar
+// nada, es solo para revisar/repararla bajo demanda).
+function abrirModalTerminalMp(obligatorio) {
+  document.getElementById('tmp-mp-device-id').value = cfg.mpDeviceId || '';
+  document.getElementById('tmp-dispositivos-dot').textContent = '⚪';
+  document.getElementById('tmp-dispositivos-txt').textContent = 'Sin buscar todavía';
+  document.getElementById('tmp-dispositivos-list').innerHTML = '';
+  document.getElementById('modal-terminal-mp-titulo').textContent = obligatorio
+    ? '💳 Vincula tu terminal antes de vender'
+    : '💳 Terminal Mercado Pago';
+  document.getElementById('modal-terminal-mp-msg').textContent = obligatorio
+    ? 'Busca tu terminal, da clic en "Usar esta" y luego en "Guardar y continuar". Mientras no la guardes, esta ventana no se puede cerrar — así evitas quedarte sin poder cobrar con tarjeta a media venta.'
+    : 'Busca tu terminal, da clic en "Usar esta" y luego en "Guardar" para actualizar el Device ID de este dispositivo.';
+  document.getElementById('modal-terminal-mp-cerrar').style.display = obligatorio ? 'none' : '';
+  openModal('modal-terminal-mp');
+}
+
+function guardarTerminalMpApertura() {
+  const v = (document.getElementById('tmp-mp-device-id')||{}).value?.trim() || '';
+  if (!v) { toast('Busca tu terminal y da clic en "Usar esta", o escribe el Device ID a mano','warn'); return; }
+  cfg.mpDeviceId = v;
+  saveCfg(); // a propósito NO se sube a Sheets — ver el comentario en la definición de cfg
+  closeModal('modal-terminal-mp');
+  toast('Terminal Mercado Pago vinculada ✓');
 }
 
 async function mpCrearIntent(amount, externalReference, items) {
@@ -5989,11 +6085,15 @@ function buildCorteHTML(corte) {
     <div style="text-align:center;font-size:10px;color:#999">Generado por NovaPOS</div>`;
 }
 
-function imprimirCorte(corte) {
+// winExistente: ventana ya abierta de antemano (ver sincronizarYCerrarModalCierre())
+// para el caso en que imprimir ocurre DESPUÉS de un await — si esta función
+// abriera la ventana en ese momento, el navegador ya no la asocia con el
+// toque del usuario y puede bloquearla en silencio como popup no solicitado.
+function imprimirCorte(corte, winExistente) {
   const anchoPapel = cfg.ticketAncho === '58' ? '58' : '80';
   const anchoContenido = anchoPapel === '58' ? '48mm' : '72mm';
   const html = buildCorteHTML(corte);
-  const win = window.open('', '_blank', 'width=320,height=600,scrollbars=yes');
+  const win = winExistente || window.open('', '_blank', 'width=320,height=600,scrollbars=yes');
   win.document.write(`<!DOCTYPE html>
 <html><head>
 <meta charset="UTF-8">
@@ -6109,6 +6209,11 @@ async function abrirCaja() {
   document.getElementById('caja-open').style.display='block';
   updateBadge(); renderCaja();
   toast(vendedorNombre ? `Caja abierta ✓ — turno de ${vendedorNombre}` : 'Caja abierta ✓');
+  // Obligatorio en CADA apertura (no solo la primera vez) — el Device ID
+  // vive únicamente en localStorage de este dispositivo y se ha visto
+  // desaparecer sin que nadie borre caché a propósito, así que confirmar
+  // aquí es más confiable que asumir que lo guardado la vez anterior sigue.
+  abrirModalTerminalMp(true);
   } catch (err) {
     console.error('[NovaPOS] Error al abrir caja:', err);
     toast('No se pudo abrir la caja: ' + err.message, 'err');
@@ -6438,11 +6543,56 @@ async function confirmarCierreCaja() {
   updateBadge(); renderCaja();
   toast('Caja cerrada. Corte generado ✓');
 
-  imprimirCorte(corte);
-  if (cfg.corteEmail && cfg.url) enviarCorteCorreo(corte);
+  abrirModalSyncCierre(corte);
   } catch (err) {
     console.error('[NovaPOS] Error al cerrar caja:', err);
     toast('No se pudo cerrar la caja: ' + err.message + ' — la caja SIGUE ABIERTA, vuelve a intentar', 'err');
+  }
+}
+
+// Corte pendiente de imprimir mientras el cajero sincroniza en
+// modal-sync-cierre — se guarda aparte (no como argumento en el onclick del
+// botón) porque un objeto completo no cabe limpio en un atributo HTML.
+let corteCierrePendiente = null;
+
+function abrirModalSyncCierre(corte) {
+  corteCierrePendiente = corte;
+  // Sin Google Sheets configurado, o en un dispositivo de rol "Sucursal"
+  // (que bloqueadoEnSucursal() no deja hacer sync_all — ver guardarRolDispositivo()),
+  // no hay nada que sincronizar aquí: se imprime directo, como siempre.
+  if (!cfg.url || cfg.rolDispositivo === 'sucursal') { imprimirCorte(corte); if (cfg.corteEmail && cfg.url) enviarCorteCorreo(corte); return; }
+  const btn = document.getElementById('cierre-sync-btn');
+  btn.disabled = false;
+  btn.textContent = '⬆ Sincronizar ahora';
+  openModal('modal-sync-cierre');
+}
+
+// Un solo toque: el botón se bloquea de inmediato para que no se pueda
+// volver a tocar mientras sincroniza (ver disabled más abajo). Solo si
+// subirSyncCompleto_() termina bien se cierra la ventana sola e imprime —
+// si falla, se desbloquea para reintentar, la ventana NO se puede cerrar
+// de otra forma (no tiene botón de cerrar, ver modal-sync-cierre).
+async function sincronizarYCerrarModalCierre() {
+  const btn = document.getElementById('cierre-sync-btn');
+  btn.disabled = true;
+  btn.textContent = 'Sincronizando…';
+  // Se abre la ventana del ticket YA, en blanco, todavía dentro de este
+  // mismo clic — y se rellena hasta que la sincronización termine bien (ver
+  // el comentario de winExistente en imprimirCorte()). Si falla, se cierra
+  // sin haber mostrado nada.
+  const winTicket = window.open('', '_blank', 'width=320,height=600,scrollbars=yes');
+  const { ok, error } = await subirSyncCompleto_();
+  if (ok) {
+    closeModal('modal-sync-cierre');
+    const corte = corteCierrePendiente;
+    corteCierrePendiente = null;
+    imprimirCorte(corte, winTicket);
+    if (cfg.corteEmail && cfg.url) enviarCorteCorreo(corte);
+  } else {
+    if (winTicket) winTicket.close();
+    btn.disabled = false;
+    btn.textContent = '⬆ Sincronizar ahora';
+    toast('Error al sincronizar' + (error ? ': ' + error : '') + ' — vuelve a intentar', 'err');
   }
 }
 
