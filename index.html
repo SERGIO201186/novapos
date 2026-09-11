@@ -1513,6 +1513,16 @@ body.modo-sucursal .admin-only{display:none!important}
         <strong>Descarga e impresión a color</strong> (CURP, constancia IMSS/ISSSTE) — $10.00<br>
         <span style="color:var(--txt3)">Se venden desde Venta, categoría "Copias e impresiones" — ajusta los precios ahí mismo (Inventario) cuando quieras.</span>
       </div>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+        <p style="font-size:12px;color:var(--txt2);margin-bottom:8px">🖨️ Contador actual de la impresora — captúralo aquí UNA VEZ (lo que marca ahora mismo el medidor físico de este equipo) para que la próxima apertura de caja en <b>este dispositivo</b> ya no lo pida en blanco, sino que arranque con este número. Mientras no lo actualices, NovaPOS usa un valor ficticio de prueba.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+          <div class="field" style="margin:0"><label>Copias B/N</label><input type="number" id="cfg-contador-base-bn" min="0"></div>
+          <div class="field" style="margin:0"><label>Copias color</label><input type="number" id="cfg-contador-base-color" min="0"></div>
+          <div class="field" style="margin:0"><label>Impresiones B/N</label><input type="number" id="cfg-contador-base-imp-bn" min="0"></div>
+          <div class="field" style="margin:0"><label>Impresiones color</label><input type="number" id="cfg-contador-base-imp-color" min="0"></div>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="guardarContadorImpresoraBase()">Guardar contador actual</button>
+      </div>
     </div>
 
     <div class="card">
@@ -2427,6 +2437,12 @@ function activarModoPro(lic) {
   const controlCopiasEl = document.getElementById('cfg-control-copias');
   if (controlCopiasEl) controlCopiasEl.checked = !!cfg.controlCopias;
 
+  const contBase = cfg.contadorImpresoraBase || {};
+  [['cfg-contador-base-bn','bn'],['cfg-contador-base-color','color'],['cfg-contador-base-imp-bn','impBn'],['cfg-contador-base-imp-color','impColor']].forEach(([id,k]) => {
+    const el = document.getElementById(id);
+    if (el) el.value = contBase[k] ?? '';
+  });
+
   const controlRecargasMPEl = document.getElementById('cfg-control-recargas-mp');
   if (controlRecargasMPEl) controlRecargasMPEl.checked = !!cfg.controlRecargasMP;
 
@@ -2937,7 +2953,12 @@ let db = { productos:[], ventas:[], movimientos:[], facturas:[], caja:{abierta:f
 // mpDeviceId: a propósito NO se sube nunca a guardarConfigEnSheets() —
 // identifica la terminal física Point pareada con ESTE dispositivo/caja,
 // que puede ser distinta en cada tablet si el negocio tiene varias.
-let cfg = { url:'', syncSecret:'', nombre:'NovaPOS Demo', rfc:'', tel:'', dir:'', giro:'generico', iva:16, logo:'', ticketAncho:'80', invPin:'', ownerPin:'', corteEmail:'', mpDeviceId:'', recargaComisionFija:2, recargaTelefonoSoporte:{}, sucursal:'', alertasEmail:'', rolDispositivo:'admin', controlCopias:false, controlRecargasMP:false };
+// contadorImpresoraBase: valores FICTICIOS temporales (pendiente que el
+// negocio capture el contador real de su impresora en Configuración →
+// Copias e impresiones — ver guardarContadorImpresoraBase()). Mientras
+// tanto sirve de semilla para que la primera apertura de caja no arranque
+// en blanco.
+let cfg = { url:'', syncSecret:'', nombre:'NovaPOS Demo', rfc:'', tel:'', dir:'', giro:'generico', iva:16, logo:'', ticketAncho:'80', invPin:'', ownerPin:'', corteEmail:'', mpDeviceId:'', recargaComisionFija:2, recargaTelefonoSoporte:{}, sucursal:'', alertasEmail:'', rolDispositivo:'admin', controlCopias:false, controlRecargasMP:false, contadorImpresoraBase:{bn:9999,color:9999,impBn:9999,impColor:9999} };
 let ticket = [];
 let editProdId = null;
 let syncing = false;
@@ -3099,6 +3120,24 @@ function sembrarServiciosCopias() {
 // "Activar copias/impresiones" es una decisión del negocio (no de un solo
 // dispositivo) — se sincroniza en la hoja "config" como giro/corte_email,
 // para que todos los dispositivos conectados muestren/pidan lo mismo.
+// Contador base de la impresora: es un dato del EQUIPO físico conectado a
+// ESTE dispositivo, no una decisión del negocio (a diferencia de
+// controlCopias) — se guarda solo local, igual que sucursal/mpDeviceId, y
+// NO se sube a la hoja "config" compartida (cada caja puede tener su propia
+// impresora con su propio contador).
+function guardarContadorImpresoraBase() {
+  const campos = { bn:'cfg-contador-base-bn', color:'cfg-contador-base-color', impBn:'cfg-contador-base-imp-bn', impColor:'cfg-contador-base-imp-color' };
+  const base = {};
+  for (const k in campos) {
+    const el = document.getElementById(campos[k]);
+    base[k] = parseFloat(el ? el.value : NaN) || 0;
+  }
+  cfg.contadorImpresoraBase = base;
+  saveCfg();
+  actualizarCamposContadorImpresora();
+  toast('Contador base de la impresora guardado ✓ — se usará en la próxima apertura de caja');
+}
+
 function guardarControlCopias(activo) {
   cfg.controlCopias = activo;
   saveCfg();
@@ -6254,11 +6293,39 @@ function renderRecargasMPCierre() {
 // Muestra/oculta los 4 campos de contador de impresora (apertura y cierre de
 // caja) según si el negocio activó "Copias e impresiones" en Configuración —
 // si no está activo, la caja se abre/cierra exactamente igual que siempre.
+// Sugerencia de contador de impresora para la próxima apertura de caja: el
+// contador de CIERRE del corte más reciente que sí lo tenga (mismo
+// dispositivo), o si todavía no hay ningún corte con contador, el
+// "contador base" capturado en Configuración → Copias e impresiones (ver
+// guardarContadorImpresoraBase()) — que empieza en un valor ficticio de
+// prueba hasta que el negocio lo actualice con la lectura real del equipo.
+function contadorImpresoraSugerido() {
+  const conContador = db.cortes.filter(c => c.contCierreBn !== undefined && c.contCierreBn !== '' && c.contCierreBn != null);
+  if (conContador.length) {
+    const ultimo = conContador.reduce((a,b) => (a.cierre > b.cierre ? a : b));
+    return { bn: ultimo.contCierreBn, color: ultimo.contCierreColor, impBn: ultimo.contCierreImpBn, impColor: ultimo.contCierreImpColor };
+  }
+  return cfg.contadorImpresoraBase || { bn:0, color:0, impBn:0, impColor:0 };
+}
+
 function actualizarCamposContadorImpresora() {
   const aperturaField = document.getElementById('caja-contadores-field');
   if (aperturaField) aperturaField.style.display = cfg.controlCopias ? 'block' : 'none';
   const cierreField = document.getElementById('cierre-contadores-field');
   if (cierreField) cierreField.style.display = cfg.controlCopias ? 'block' : 'none';
+
+  // Precarga los 4 campos de apertura con la sugerencia de arriba — así el
+  // cajero ya no tiene que ir a leer el medidor de la impresora a mano cada
+  // vez que abre caja. Solo llena los campos que estén vacíos, para no
+  // pisar lo que ya se haya tecleado a mano en esta pantalla.
+  if (cfg.controlCopias && !db.caja.abierta) {
+    const sugerido = contadorImpresoraSugerido();
+    const campos = { bn:'caja-cont-bn', color:'caja-cont-color', impBn:'caja-cont-imp-bn', impColor:'caja-cont-imp-color' };
+    for (const k in campos) {
+      const el = document.getElementById(campos[k]);
+      if (el && el.value === '' && sugerido[k] != null && sugerido[k] !== '') el.value = sugerido[k];
+    }
+  }
 }
 
 function calcDiferenciaCierre() {
