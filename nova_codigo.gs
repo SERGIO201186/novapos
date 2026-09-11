@@ -90,7 +90,18 @@ function doPost(e) {
     // que tiene desplegado el script.
     if (action === 'send_corte_email') {
       if (!body.to) return json({ok:false, error:'Falta correo destino'});
-      MailApp.sendEmail({ to: body.to, subject: body.subject || 'Corte de turno', htmlBody: body.html || '' });
+      const opciones = { to: body.to, subject: body.subject || 'Corte de turno', htmlBody: body.html || '' };
+      // El QR viaja aparte, como PNG en base64 (ver buildCorteQrPngBase64()
+      // en NovaPOS/index.html), para adjuntarlo como imagen inline con
+      // Content-ID ("cid:corte_qr", referenciado en el <img> del propio
+      // html) — Gmail (y la mayoría de clientes de correo) elimina en
+      // silencio cualquier <svg> embebido directo en el cuerpo por
+      // seguridad, así que el QR simplemente desaparecía del correo aunque
+      // se veía bien al imprimir el ticket.
+      if (body.qrPngBase64) {
+        opciones.inlineImages = { corte_qr: Utilities.newBlob(Utilities.base64Decode(body.qrPngBase64), 'image/png', 'corte_qr.png') };
+      }
+      MailApp.sendEmail(opciones);
       return json({ok:true});
     }
 

@@ -864,7 +864,10 @@ body.modo-sucursal .admin-only{display:none!important}
             <div class="field" style="margin:0"><label>Impresiones color</label><input type="number" id="caja-cont-imp-color" min="0" placeholder="0"></div>
           </div>
         </div>
-        <button class="btn btn-primary btn-full" onclick="abrirCaja()">▶ Abrir caja</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary" style="flex:1" onclick="abrirCaja()">▶ Abrir caja</button>
+          <button class="btn btn-ghost" onclick="abrirModalTerminalMp(false)" title="Buscar/vincular la terminal Mercado Pago">💳 Terminal MP</button>
+        </div>
       </div>
       <div id="caja-open" style="display:none">
         <p style="font-size:13px;color:var(--txt2);margin-bottom:14px">Caja abierta. Registra movimientos y cierra al finalizar el turno.</p>
@@ -1673,6 +1676,53 @@ body.modo-sucursal .admin-only{display:none!important}
     </div>
     <div id="vincular-qr-box" style="display:flex;justify-content:center;margin:14px 0"></div>
     <button class="btn btn-ghost btn-full" onclick="closeModal('modal-vincular-dispositivo')">Cerrar</button>
+  </div>
+</div>
+
+<!-- Vincular terminal Mercado Pago — se abre SIEMPRE justo después de abrir
+     caja (obligatoria, sin botón de cerrar) para que nunca falte el Device
+     ID a la hora de necesitar cobrar con tarjeta; el botón "💳 Terminal MP"
+     junto a "Abrir caja" abre la misma ventana bajo demanda (esa versión sí
+     se puede cerrar sin guardar, porque no es el candado obligatorio). Usa
+     los mismos endpoints que Configuración → Mercado Pago
+     (mpBuscarDispositivos()), solo que apuntando a estos otros campos. -->
+<div class="modal-bg" id="modal-terminal-mp">
+  <div class="modal" style="max-width:400px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px">
+      <h3 id="modal-terminal-mp-titulo" style="margin:0">💳 Terminal Mercado Pago</h3>
+      <button id="modal-terminal-mp-cerrar" class="btn btn-ghost btn-sm" onclick="closeModal('modal-terminal-mp')">✕</button>
+    </div>
+    <p id="modal-terminal-mp-msg" style="font-size:12px;color:var(--txt2);margin-bottom:12px"></p>
+    <div id="tmp-dispositivos-status" class="sheets-status">
+      <span id="tmp-dispositivos-dot">⚪</span>
+      <span id="tmp-dispositivos-txt">Sin buscar todavía</span>
+    </div>
+    <div class="field">
+      <label>Device ID de tu terminal</label>
+      <input id="tmp-mp-device-id" placeholder="Ej. GERTEC_MP35P__8701016695109435">
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-ghost" onclick="mpBuscarDispositivos('tmp','tmp-mp-device-id')">🔍 Buscar terminal</button>
+      <button class="btn btn-primary" onclick="guardarTerminalMpApertura()">💾 Guardar y continuar</button>
+    </div>
+    <div id="tmp-dispositivos-list" style="margin-top:10px;font-size:12px"></div>
+  </div>
+</div>
+
+<!-- Sincronizar antes de imprimir el ticket de cierre — obligatoria (sin
+     botón de cerrar): un solo toque en "Sincronizar ahora" sube TODO lo de
+     este dispositivo a Google Sheets (mismo reemplazo total que ⬆
+     Sincronizar ahora en Configuración, ver syncNow()/subirSyncCompleto_())
+     y, solo si terminó bien, esta ventana se cierra sola y manda a imprimir
+     el ticket — así el ticket y la próxima apertura siempre parten de
+     información ya subida a la nube. Ver abrirModalSyncCierre() /
+     sincronizarYCerrarModalCierre(), llamadas desde confirmarCierreCaja(). -->
+<div class="modal-bg" id="modal-sync-cierre">
+  <div class="modal" style="max-width:360px;text-align:center">
+    <div style="font-size:32px;margin-bottom:8px">☁️</div>
+    <h3 style="margin-bottom:8px">Sincroniza antes de imprimir</h3>
+    <p style="font-size:13px;color:var(--txt2);margin-bottom:16px">Sube la información de este cierre — ventas, inventario, recargas y contador de la impresora — a Google Sheets, para que el ticket y la próxima apertura de caja partan de datos actualizados.</p>
+    <button class="btn btn-primary btn-full" id="cierre-sync-btn" onclick="sincronizarYCerrarModalCierre()">⬆ Sincronizar ahora</button>
   </div>
 </div>
 
@@ -2511,7 +2561,7 @@ const SS_ID = SpreadsheetApp.getActiveSpreadsheet().getId();
 // NovaPOS (Configuración → Google Sheets). Sin esto, cualquiera que adivine
 // o encuentre la URL /exec podría leer, modificar o borrar todos los datos
 // del negocio — la URL de un Web App de Apps Script no es secreta por sí sola.
-const SYNC_SECRET = 'CAMBIA_ESTO_por_una_clave_larga_y_unica';
+const SYNC_SECRET = 'NicolasBravo11centroVeracruzXalapa';
 
 function checkSecret(secret) {
   return SYNC_SECRET && SYNC_SECRET !== 'CAMBIA_ESTO_por_una_clave_larga_y_unica' && secret === SYNC_SECRET;
@@ -2526,6 +2576,11 @@ function doGet(e) {
   // cálculo (un contador, un socio) puede ver ventas/inventario sin ver los
   // NIP, que solo son visibles desde el editor de Apps Script.
   if (action === 'get_pins') return json({ok:true, data: getPins_()});
+
+  // Login de Legado Integral (empleados + validación de NIP) — ver
+  // getEmpleadosLogin_/handleResumenLogin_ más abajo.
+  if (action === 'empleados') return json({ok:true, empleados: getEmpleadosLogin_()});
+  if (action === 'resumen') return handleResumenLogin_(e.parameter.id, e.parameter.nip);
 
   const sheet = getSheet(e.parameter.sheet || 'productos');
   if (action === 'get') {
@@ -2557,6 +2612,14 @@ function doPost(e) {
     // 'upsert' normal a la hoja "recargas", igual que hace con ventas/facturas.
     if (action === 'recharge') return handleRecharge_(body);
 
+    // Acuse del empleado sobre su ticket de cierre, escaneado y revisado en
+    // Legado Integral (ver buildCorteQrPayload en NovaPOS/index.html — la
+    // "especificación compartida" que arma ese QR). No reemplaza el corte
+    // que NovaPOS ya guardó en "cortes": es la confirmación del empleado,
+    // con el monto que entregó a administración (NovaPOS lo deja en blanco
+    // a propósito porque ese paso es manual y le toca completarlo aquí).
+    if (action === 'confirmar_turno') return handleConfirmarTurno_(body);
+
     // Guarda un NIP en Propiedades del script (nunca en una hoja). scope
     // 'owner'/'inventario' son un solo valor; 'vendedor' guarda un mapa
     // {vendedorId: pin} porque puede haber varios. pin vacío = quitar/borrar.
@@ -2581,7 +2644,18 @@ function doPost(e) {
     // que tiene desplegado el script.
     if (action === 'send_corte_email') {
       if (!body.to) return json({ok:false, error:'Falta correo destino'});
-      MailApp.sendEmail({ to: body.to, subject: body.subject || 'Corte de turno', htmlBody: body.html || '' });
+      const opciones = { to: body.to, subject: body.subject || 'Corte de turno', htmlBody: body.html || '' };
+      // El QR viaja aparte, como PNG en base64 (ver buildCorteQrPngBase64()
+      // en NovaPOS/index.html), para adjuntarlo como imagen inline con
+      // Content-ID ("cid:corte_qr", referenciado en el <img> del propio
+      // html) — Gmail (y la mayoría de clientes de correo) elimina en
+      // silencio cualquier <svg> embebido directo en el cuerpo por
+      // seguridad, así que el QR simplemente desaparecía del correo aunque
+      // se veía bien al imprimir el ticket.
+      if (body.qrPngBase64) {
+        opciones.inlineImages = { corte_qr: Utilities.newBlob(Utilities.base64Decode(body.qrPngBase64), 'image/png', 'corte_qr.png') };
+      }
+      MailApp.sendEmail(opciones);
       return json({ok:true});
     }
 
@@ -2681,7 +2755,19 @@ function doPost(e) {
       const idField = headers.includes('id') ? 'id' : 'key';
       const rows = sheet.getDataRange().getValues();
       const idCol = headers.indexOf(idField);
-      const existing = rows.findIndex((r,i)=>i>0 && r[idCol]===data[idField]);
+      let existing = rows.findIndex((r,i)=>i>0 && r[idCol]===data[idField]);
+      // Productos duplicados: si el mismo producto se da de alta casi al
+      // mismo tiempo en dos dispositivos distintos (cada uno sin saber del
+      // otro todavía), cada uno genera su propio id local — sin esto, el
+      // upsert de cada uno no encontraba la fila del otro (ids distintos) y
+      // los subía como dos productos separados con el mismo código de
+      // barras. Como respaldo al id, si no hay match por id pero sí existe
+      // ya una fila con el mismo "barcode", se actualiza esa en vez de
+      // agregar una nueva.
+      if (existing < 0 && (sheetName || '') === 'productos' && data.barcode) {
+        const bcCol = headers.indexOf('barcode');
+        if (bcCol >= 0) existing = rows.findIndex((r,i)=>i>0 && String(r[bcCol])===String(data.barcode));
+      }
       const row = headers.map(h => data[h] ?? '');
       if (existing > 0) sheet.getRange(existing+1,1,1,row.length).setValues([row]);
       else sheet.appendRow(row);
@@ -2746,6 +2832,59 @@ function handleRecharge_(body) {
     : json({ ok:false, error: resultado.mensaje||'Error del proveedor' });
 }
 
+// Guarda el acuse del empleado sobre un ticket de cierre en la hoja
+// "legado_turnos" (separada de "cortes", que NovaPOS ya llenó al cerrar
+// caja). Vuelve a validar el NIP contra VENDEDOR_PINS por su cuenta — el
+// backend nunca confía en la sesión guardada del navegador para una acción
+// que registra dinero entregado. Reenviar el mismo folio (p.ej. si el
+// empleado vuelve a escanear un ticket ya confirmado) actualiza esa misma
+// fila en vez de duplicarla.
+function handleConfirmarTurno_(body) {
+  if (!body.folio) return json({ok:false, error:'Falta el folio del ticket'});
+  if (!body.id_empleado) return json({ok:false, error:'Falta el empleado'});
+
+  const empleado = getEmpleadosLogin_().find(e => String(e.id) === String(body.id_empleado));
+  if (!empleado) return json({ok:false, error:'Empleado no encontrado'});
+  const pinGuardado = getPins_().vendedorPins[String(empleado._vendedorId)];
+  if (!pinGuardado || String(pinGuardado) !== String(body.nip)) {
+    return json({ok:false, error:'NIP incorrecto'});
+  }
+
+  const sheet = getSheet('legado_turnos');
+  const headers = ensureHeaders_(sheet, 'legado_turnos');
+  const rows = sheet.getDataRange().getValues();
+  const folioCol = headers.indexOf('folio');
+  const idCol = headers.indexOf('id');
+  const existing = rows.findIndex((r,i) => i>0 && r[folioCol] === body.folio);
+
+  const registro = {
+    id: existing > 0 ? rows[existing][idCol] : Utilities.getUuid(),
+    folio: body.folio,
+    codigoEmpleado: empleado.id,
+    nombreEmpleado: empleado.nombre,
+    fecha: body.fecha || '',
+    hora_apertura: body.hora_apertura || '',
+    hora_cierre: body.hora_cierre || '',
+    venta_turno: Number(body.venta_turno) || 0,
+    recargas_telefonicas: Number(body.recargas_telefonicas) || 0,
+    monto_entregado_admin: Number(body.monto_entregado_admin) || 0,
+    inventario_vendido: Number(body.inventario_vendido) || 0,
+    faltante: Number(body.faltante) || 0,
+    merma: Number(body.merma) || 0,
+    copias_bn_usadas: Number(body.copias_bn_usadas) || 0,
+    copias_color_usadas: Number(body.copias_color_usadas) || 0,
+    impresiones_bn_usadas: Number(body.impresiones_bn_usadas) || 0,
+    impresiones_color_usadas: Number(body.impresiones_color_usadas) || 0,
+    copias_impresiones_vendido: Number(body.copias_impresiones_vendido) || 0,
+    confirmado_en: new Date().toISOString(),
+  };
+  const row = headers.map(h => registro[h] ?? '');
+  if (existing > 0) sheet.getRange(existing+1,1,1,row.length).setValues([row]);
+  else sheet.appendRow(row);
+
+  return json({ok:true});
+}
+
 function getPins_() {
   const props = PropertiesService.getScriptProperties();
   let vendedorPins = {};
@@ -2755,6 +2894,134 @@ function getPins_() {
     invPin:   props.getProperty('INV_PIN') || '',
     vendedorPins,
   };
+}
+
+// Busca una columna por nombre tolerando mayúsculas/minúsculas y espacios
+// sobrantes — un encabezado escrito a mano en la hoja (en vez de generado
+// por el propio NovaPOS) fácilmente trae "CodigoEmpleado" o "codigoEmpleado "
+// en vez de "codigoEmpleado" exacto, y headers.indexOf() no perdona eso.
+function indexOfHeader_(headers, nombre) {
+  const target = String(nombre).trim().toLowerCase();
+  return headers.findIndex(h => String(h).trim().toLowerCase() === target);
+}
+
+// Lista de empleados para el login de Legado Integral. Usa la misma hoja
+// "vendedores" que administra NovaPOS — el "id" que se manda al cliente es
+// el codigoEmpleado (p.ej. "EMP-001"), no el id interno de la fila: es el
+// mismo valor que trae el campo "id_empleado" del QR de cierre de turno que
+// genera NovaPOS (ver generación del ticket en NovaPOS/index.html), así que
+// Legado Integral puede comparar sesión vs. ticket escaneado directamente.
+// Vendedores sin código de empleado capturado en NovaPOS quedan fuera: no
+// hay forma de identificarlos en un ticket.
+function getEmpleadosLogin_() {
+  const rows = getSheet('vendedores').getDataRange().getValues();
+  const headers = rows[0] || [];
+  const idCol = indexOfHeader_(headers, 'id');
+  const nombreCol = indexOfHeader_(headers, 'nombre');
+  const codigoCol = indexOfHeader_(headers, 'codigoEmpleado');
+  if (idCol < 0 || nombreCol < 0 || codigoCol < 0) return [];
+  return rows.slice(1)
+    .filter(r => String(r[codigoCol] || '').trim())
+    .map(r => ({ id: String(r[codigoCol]).trim(), nombre: r[nombreCol], _vendedorId: r[idCol] }));
+}
+
+// Diagnóstico manual: selecciona esta función en el desplegable del editor
+// de Apps Script y Ejecutar, luego revisa Ver → Registros de ejecución.
+// Muestra los encabezados detectados en "vendedores" y la lista final que
+// action=empleados le manda a Legado Integral — útil para confirmar si el
+// problema es un encabezado con nombre distinto, o simplemente que no hay
+// ningún vendedor con código de empleado capturado todavía.
+// SIN guion bajo al final a propósito: Apps Script oculta del desplegable
+// "Ejecutar" cualquier función cuyo nombre termine en "_" (la convención
+// que usa este script para marcar funciones internas/privadas) — con guion
+// bajo, esta función nunca aparecería como opción para correr manualmente.
+function debugEmpleadosLogin() {
+  const rows = getSheet('vendedores').getDataRange().getValues();
+  Logger.log('Encabezados en "vendedores": ' + JSON.stringify(rows[0] || []));
+  Logger.log('Filas de datos: ' + (rows.length - 1));
+  Logger.log('Empleados que vería Legado Integral: ' + JSON.stringify(getEmpleadosLogin_()));
+}
+
+// Valida el NIP contra VENDEDOR_PINS (el mismo NIP con el que el vendedor ya
+// autoriza ventas en NovaPOS, ver getPins_/set_pin arriba) y regresa su
+// progreso. Los 4 bonos quedan en $0 por ahora: sus reglas (meta de venta,
+// tolerancia de retardo, montos) todavía no están definidas en ningún
+// lado — mostrar un número inventado aquí pagaría bonos con un criterio que
+// nadie acordó. Cuando se definan las reglas, calcularlas aquí dentro de
+// resumenMes_.
+function handleResumenLogin_(codigoEmpleado, nip) {
+  if (!codigoEmpleado || !nip) return json({ok:false, error:'Falta empleado o NIP'});
+  const empleado = getEmpleadosLogin_().find(e => String(e.id) === String(codigoEmpleado));
+  if (!empleado) return json({ok:false, error:'Empleado no encontrado'});
+
+  const pinGuardado = getPins_().vendedorPins[String(empleado._vendedorId)];
+  if (!pinGuardado || String(pinGuardado) !== String(nip)) {
+    return json({ok:false, error:'NIP incorrecto'});
+  }
+
+  return json({
+    ok: true,
+    empleado: { id: empleado.id, nombre: empleado.nombre },
+    semana: resumenSemana_(codigoEmpleado),
+    mes: resumenMes_(),
+  });
+}
+
+function cortesDelEmpleadoEntre_(codigoEmpleado, desde, hasta) {
+  const rows = getSheet('cortes').getDataRange().getValues();
+  const headers = rows[0] || [];
+  const codCol = indexOfHeader_(headers, 'codigoEmpleado');
+  const apCol = indexOfHeader_(headers, 'apertura');
+  const faltCol = indexOfHeader_(headers, 'faltante');
+  if (codCol < 0 || apCol < 0) return [];
+  return rows.slice(1)
+    .filter(r => String(r[codCol]) === String(codigoEmpleado) && r[apCol])
+    .map(r => ({ apertura: r[apCol], faltante: Number(r[faltCol]) || 0 }))
+    .filter(c => { const d = new Date(c.apertura); return d >= desde && d < hasta; });
+}
+
+function resumenSemana_(codigoEmpleado) {
+  const hoy = new Date();
+  const diaSemana = (hoy.getDay() + 6) % 7; // lunes=0 ... domingo=6
+  const inicio = new Date(hoy); inicio.setHours(0,0,0,0); inicio.setDate(hoy.getDate() - diaSemana);
+  const fin = new Date(inicio); fin.setDate(inicio.getDate() + 7);
+
+  const turnos = cortesDelEmpleadoEntre_(codigoEmpleado, inicio, fin);
+  const conFaltante = turnos.filter(t => t.faltante > 0);
+
+  const puntos_favor = [];
+  const areas_oportunidad = [];
+  if (turnos.length) puntos_favor.push(turnos.length + ' turno(s) registrado(s) esta semana.');
+  if (turnos.length && !conFaltante.length) puntos_favor.push('Sin faltantes de caja esta semana.');
+  else conFaltante.forEach(t => areas_oportunidad.push('Faltante el ' + fmtDMY_(t.apertura) + ': $' + t.faltante.toFixed(2)));
+  if (!turnos.length) areas_oportunidad.push('Todavía no registras ningún turno esta semana.');
+
+  return {
+    rango: { inicio: fmtDMY_(inicio), fin: fmtDMY_(new Date(fin - 1)) },
+    puntos_favor,
+    areas_oportunidad,
+  };
+}
+
+// Placeholder mientras se definen las reglas de los 4 bonos — ver el
+// comentario en handleResumenLogin_.
+function resumenMes_() {
+  const hoy = new Date();
+  return {
+    mes: hoy.toLocaleDateString('es-MX', { month: 'long' }),
+    elegible_premio_maximo: false,
+    mensaje: 'El cálculo de bonos del mes está pendiente de configurar — próximamente verás aquí tu progreso real.',
+    bono_ventas: 0,
+    bono_puntualidad: 0,
+    bono_caja: 0,
+    bono_inventario: 0,
+    total_bonos: 0,
+  };
+}
+
+function fmtDMY_(fecha) {
+  const d = new Date(fecha);
+  return ('0'+d.getDate()).slice(-2) + '/' + ('0'+(d.getMonth()+1)).slice(-2);
 }
 
 function getConfigMap_() {
@@ -2852,17 +3119,17 @@ const SHEET_HEADERS = {
   // de agregar una nueva. Resultado: la hoja nunca acumulaba más de un corte
   // a la vez. Con "id" agregado, el corte se identifica igual que cualquier
   // otra hoja y cada cierre de caja sí agrega su propia fila.
-  cortes:      ['id','apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','recargasComisionTotal','folio','codigoEmpleado','efectivoEsperado','efectivoContado','faltante','sucursal','fiadoCount','fiadoTotal','contAperturaBn','contAperturaColor','contAperturaImpBn','contAperturaImpColor','contCierreBn','contCierreColor','contCierreImpBn','contCierreImpColor'],
+  // copiasImpresionesVendidasTotal/Count/Detalle: el "Resumen de turno" que
+  // imprime NovaPOS trae una sección aparte, "Copias e impresiones
+  // vendidas" (dinero cobrado por copias/impresiones, distinto del
+  // "Contador de impresora" que son solo lecturas del medidor), con una fila
+  // por tipo de copia (p.ej. "Copia B/N carta $18.00 (9)"). Como el número
+  // de tipos varía según el catálogo de precios, el detalle se guarda como
+  // JSON (mismo patrón que "items" en la hoja "ventas") y Total/Count quedan
+  // aparte para poder sumarlos sin tener que parsear el JSON cada vez.
+  cortes:      ['id','apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','recargasComisionTotal','folio','codigoEmpleado','efectivoEsperado','efectivoContado','faltante','sucursal','fiadoCount','fiadoTotal','contAperturaBn','contAperturaColor','contAperturaImpBn','contAperturaImpColor','contCierreBn','contCierreColor','contCierreImpBn','contCierreImpColor','copiasImpresionesVendidasTotal','copiasImpresionesVendidasCount','copiasImpresionesVendidasDetalle'],
   vendedores:  ['id','nombre','codigoEmpleado'],
   config:      ['key','value'],
-  // Kardex de entradas de mercancía — separado de "movimientos" (que es
-  // dinero, ingresos/egresos de caja) para poder comparar entradas vs.
-  // ventas vs. conteo físico y saber si una merma es real o solo mal
-  // registrada como si fuera venta o al revés.
-  entradas_inventario: ['id','fecha','productoId','productoNombre','cantidad','stockAntes','stockDespues','usuario'],
-  // Catálogo de turnos de personal (Mañana/Noche, etc.) — informativo, no
-  // tiene que ver con la apertura/cierre real de cada caja.
-  turnos: ['id','nombre','horaInicio','horaFin','vendedorIds'],
   // Clientes para venta a crédito ("fiado") — "saldo" es lo que debe
   // actualmente, "limiteCredito" es informativo (el checkout no lo bloquea,
   // solo lo usa NovaPOS para avisar). "clientes_movs" son solo los abonos
@@ -2880,6 +3147,26 @@ const SHEET_HEADERS = {
   // sumando estos montos y restando el monto (sin comisión) de cada recarga
   // ya registrada en "recargas".
   recarga_saldo_movs: ['id','fecha','monto','nota','vendedor','sucursal'],
+  // Kardex de entradas de mercancía — separado de "movimientos" (que es
+  // dinero, ingresos/egresos de caja) para poder comparar entradas vs.
+  // ventas vs. conteo físico y saber si una merma es real o solo mal
+  // registrada como si fuera venta o al revés.
+  entradas_inventario: ['id','fecha','productoId','productoNombre','cantidad','stockAntes','stockDespues','usuario'],
+  // Catálogo de turnos de personal (Mañana/Noche, etc.) — informativo, no
+  // tiene que ver con la apertura/cierre real de cada caja.
+  turnos: ['id','nombre','horaInicio','horaFin','vendedorIds'],
+  // Acuse del empleado sobre su ticket de cierre, capturado en Legado
+  // Integral al escanear el QR que genera NovaPOS (buildCorteQrPayload).
+  // "folio" identifica el ticket (mismo folio que en "cortes"); no
+  // duplica los datos de "cortes", solo agrega lo que el empleado confirma
+  // desde esta app — sobre todo monto_entregado_admin, que NovaPOS deja en
+  // blanco a propósito porque ese paso es manual.
+  // copias_bn_usadas/copias_color_usadas/impresiones_bn_usadas/
+  // impresiones_color_usadas/copias_impresiones_vendido: mismos campos que
+  // trae el QR desde buildCorteQrPayload() — lectura del medidor de la
+  // impresora (uso) y dinero cobrado por copias/impresiones (venta), en 0
+  // cuando el negocio no tiene activo "Copias e impresiones" en NovaPOS.
+  legado_turnos: ['id','folio','codigoEmpleado','nombreEmpleado','fecha','hora_apertura','hora_cierre','venta_turno','recargas_telefonicas','monto_entregado_admin','inventario_vendido','faltante','merma','copias_bn_usadas','copias_color_usadas','impresiones_bn_usadas','impresiones_color_usadas','copias_impresiones_vendido','confirmado_en'],
 };
 
 function getSheet(name) {
@@ -3613,15 +3900,16 @@ function saveAndDeleteFast(sheet, id) {
     .catch(() => setSyncState('error'));
 }
 
-async function syncNow() {
-  if (bloqueadoEnSucursal()) return;
-  if (!cfg.url) { toast('Configura la URL del Apps Script primero','warn'); return; }
-  // 'sync_all' reemplaza TODO lo que hay en la hoja con lo de este dispositivo
-  // (ver doPost en APPS_SCRIPT_CODE) — es de una sola vía, no combina con lo
-  // que ya esté en la nube. Confirmar explícitamente evita que un dispositivo
-  // con base local vacía/vieja borre por accidente lo que subieron otros.
-  const resumen = `${db.productos.length} productos, ${db.ventas.length} ventas, ${(db.facturas||[]).length} facturas, ${(db.recargas||[]).length} recargas`;
-  if (!confirm(`Esto va a REEMPLAZAR todo lo que hay en Google Sheets con los datos de ESTE dispositivo (${resumen}).\n\nSi otro dispositivo tiene información que no está aquí, se perderá. ¿Continuar?`)) return;
+// Núcleo del reemplazo total ("sync_all") — lo comparten el botón manual de
+// Configuración (syncNow(), que sí pide confirmación con confirm() porque
+// se puede disparar por accidente en cualquier momento) y la ventana
+// obligatoria de cierre de caja (sincronizarYCerrarModalCierre(), que no
+// repite esa confirmación porque ya es, en sí misma, un paso explícito de
+// un solo toque dentro de un flujo guiado que el cajero no puede saltarse).
+// Regresa {ok, error} en vez de solo avisar con un toast, para que quien
+// llama decida qué hacer según el resultado (el modal de cierre necesita
+// saber si ya puede cerrarse e imprimir, o si debe dejar reintentar).
+async function subirSyncCompleto_() {
   setSyncState('syncing');
   try {
     const res = await sheetsPost({
@@ -3648,11 +3936,24 @@ async function syncNow() {
     });
     const ok = !!(res && res.ok);
     setSyncState(ok ? 'ok' : 'error');
-    toast(ok ? 'Sincronizado con Google Sheets ✓' : ('Error al sincronizar' + (res && res.error ? ': ' + res.error : '')), ok ? 'ok' : 'err');
+    return { ok, error: res && res.error };
   } catch(e) {
     setSyncState('error');
-    toast('Error de conexión: ' + e.message, 'err');
+    return { ok:false, error: e.message };
   }
+}
+
+async function syncNow() {
+  if (bloqueadoEnSucursal()) return;
+  if (!cfg.url) { toast('Configura la URL del Apps Script primero','warn'); return; }
+  // 'sync_all' reemplaza TODO lo que hay en la hoja con lo de este dispositivo
+  // (ver doPost en APPS_SCRIPT_CODE) — es de una sola vía, no combina con lo
+  // que ya esté en la nube. Confirmar explícitamente evita que un dispositivo
+  // con base local vacía/vieja borre por accidente lo que subieron otros.
+  const resumen = `${db.productos.length} productos, ${db.ventas.length} ventas, ${(db.facturas||[]).length} facturas, ${(db.recargas||[]).length} recargas`;
+  if (!confirm(`Esto va a REEMPLAZAR todo lo que hay en Google Sheets con los datos de ESTE dispositivo (${resumen}).\n\nSi otro dispositivo tiene información que no está aquí, se perderá. ¿Continuar?`)) return;
+  const { ok, error } = await subirSyncCompleto_();
+  toast(ok ? 'Sincronizado con Google Sheets ✓' : ('Error al sincronizar' + (error ? ': ' + error : '')), ok ? 'ok' : 'err');
 }
 
 // Google Sheets adivina el tipo de cada celda: un código de barras o un
@@ -4041,11 +4342,15 @@ function guardarConfigMpDevice() {
   toast(v ? 'Device ID guardado ✓' : 'Device ID borrado ✓');
 }
 
-async function mpBuscarDispositivos() {
+// prefix/deviceInputId: por default apunta a los campos de Configuración
+// (mp-dispositivos-*, cfg-mp-device-id) — el modal obligatorio de apertura
+// de caja llama a esto mismo con ('tmp','tmp-mp-device-id') para reusar la
+// búsqueda sin duplicar la lógica de la API de Mercado Pago.
+async function mpBuscarDispositivos(prefix = 'mp', deviceInputId = 'cfg-mp-device-id') {
   if (!cfg.url) { toast('Configura primero la URL de Google Sheets','warn'); return; }
-  const dot = document.getElementById('mp-dispositivos-dot');
-  const txt = document.getElementById('mp-dispositivos-txt');
-  const list = document.getElementById('mp-dispositivos-list');
+  const dot = document.getElementById(prefix + '-dispositivos-dot');
+  const txt = document.getElementById(prefix + '-dispositivos-txt');
+  const list = document.getElementById(prefix + '-dispositivos-list');
   dot.textContent = '🟡'; txt.textContent = 'Buscando…'; list.innerHTML = '';
   const res = await sheetsPost({ action: 'mp_listar_dispositivos' });
   if (!res || !res.ok) {
@@ -4064,8 +4369,36 @@ async function mpBuscarDispositivos() {
   list.innerHTML = dispositivos.map(d => `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-top:1px solid var(--border)">
       <span style="font-family:var(--mono)">${esc(d.id || d.device_id || '')}</span>
-      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('cfg-mp-device-id').value='${esc(d.id || d.device_id || '')}'">Usar esta</button>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('${deviceInputId}').value='${esc(d.id || d.device_id || '')}'">Usar esta</button>
     </div>`).join('');
+}
+
+// Ventana de vinculación de terminal — obligatoria=true la usa abrirCaja()
+// (sin botón de cerrar, hasta que se guarde un Device ID) y obligatoria=false
+// el botón "💳 Terminal MP" junto a "Abrir caja" (se puede cerrar sin tocar
+// nada, es solo para revisar/repararla bajo demanda).
+function abrirModalTerminalMp(obligatorio) {
+  document.getElementById('tmp-mp-device-id').value = cfg.mpDeviceId || '';
+  document.getElementById('tmp-dispositivos-dot').textContent = '⚪';
+  document.getElementById('tmp-dispositivos-txt').textContent = 'Sin buscar todavía';
+  document.getElementById('tmp-dispositivos-list').innerHTML = '';
+  document.getElementById('modal-terminal-mp-titulo').textContent = obligatorio
+    ? '💳 Vincula tu terminal antes de vender'
+    : '💳 Terminal Mercado Pago';
+  document.getElementById('modal-terminal-mp-msg').textContent = obligatorio
+    ? 'Busca tu terminal, da clic en "Usar esta" y luego en "Guardar y continuar". Mientras no la guardes, esta ventana no se puede cerrar — así evitas quedarte sin poder cobrar con tarjeta a media venta.'
+    : 'Busca tu terminal, da clic en "Usar esta" y luego en "Guardar" para actualizar el Device ID de este dispositivo.';
+  document.getElementById('modal-terminal-mp-cerrar').style.display = obligatorio ? 'none' : '';
+  openModal('modal-terminal-mp');
+}
+
+function guardarTerminalMpApertura() {
+  const v = (document.getElementById('tmp-mp-device-id')||{}).value?.trim() || '';
+  if (!v) { toast('Busca tu terminal y da clic en "Usar esta", o escribe el Device ID a mano','warn'); return; }
+  cfg.mpDeviceId = v;
+  saveCfg(); // a propósito NO se sube a Sheets — ver el comentario en la definición de cfg
+  closeModal('modal-terminal-mp');
+  toast('Terminal Mercado Pago vinculada ✓');
 }
 
 async function mpCrearIntent(amount, externalReference, items) {
@@ -5760,6 +6093,38 @@ function buildCorteQrSvg(texto, moduleSizePx = 4) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${px}" height="${px}" viewBox="0 0 ${px} ${px}" shape-rendering="crispEdges"><rect width="${px}" height="${px}" fill="#fff"/><g fill="#000">${rects}</g></svg>`;
 }
 
+// Misma matriz de módulos que buildCorteQrSvg(), pero rasterizada a PNG con
+// <canvas> — para el correo del cierre. Gmail (y la mayoría de clientes de
+// correo) elimina en silencio cualquier <svg> embebido directo en el cuerpo
+// HTML por seguridad, así que el QR simplemente desaparecía del correo
+// aunque se ve perfecto al imprimir el ticket (ahí sí corre como una página
+// normal, no pasa por el sanitizador de un cliente de correo). Regresa solo
+// el base64 (sin el prefijo "data:image/png;base64,"), para mandarlo al
+// backend como adjunto inline con Content-ID (ver enviarCorteCorreo() /
+// action=send_corte_email en nova_codigo.gs) — un <img src="cid:..."> sí
+// sobrevive el filtro de Gmail, a diferencia de un <svg> o un <img src="data:...">.
+function buildCorteQrPngBase64(texto, moduleSizePx = 8) {
+  ensureQrCore();
+  const data = window.QrCore.create(texto, { errorCorrectionLevel: 'M' });
+  const size = data.modules.size;
+  const mod  = data.modules.data;
+  const quiet = 4;
+  const total = size + quiet * 2;
+  const px = total * moduleSizePx;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = px;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, px, px);
+  ctx.fillStyle = '#000';
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      if (mod[r * size + c]) ctx.fillRect((c+quiet)*moduleSizePx, (r+quiet)*moduleSizePx, moduleSizePx, moduleSizePx);
+    }
+  }
+  return canvas.toDataURL('image/png').split(',')[1];
+}
+
 // ══════════════════════════════════════════════════════════
 //  VINCULAR OTRO DISPOSITIVO POR QR — para no tener que copiar/pegar la URL
 //  y clave secreta de Google Sheets a mano en el dispositivo del negocio
@@ -5799,6 +6164,20 @@ function aplicarVinculacionPorQR() {
   const params = new URLSearchParams(location.search);
   const syncUrl = params.get('syncUrl');
   if (!syncUrl) return;
+  // Si este dispositivo YA tiene una URL de Google Sheets configurada y es
+  // DISTINTA a la que trae el link, no se aplica en silencio — un enlace de
+  // vinculación que haya quedado guardado sin querer como acceso directo
+  // (p.ej. "Añadir a pantalla de inicio" mientras la dirección todavía traía
+  // ?syncUrl=..., ver generarQrVincular()) reconectaría el dispositivo hacia
+  // OTRO negocio y borraría todo lo local CADA VEZ que se abre — sin este
+  // candado eso pasó realmente: repintó un dispositivo de otro negocio hacia
+  // esta misma hoja y borró sus datos. La URL se limpia de inmediato en
+  // cualquier caso, para no dejar la clave secreta a la vista.
+  if (cfg.url && cfg.url !== syncUrl) {
+    history.replaceState({}, '', location.pathname);
+    const continuar = confirm('Este enlace quiere conectar este dispositivo a OTRA hoja de cálculo/negocio distinta a la que ya tiene configurada — esto BORRARÁ todos los datos guardados en este dispositivo. ¿Seguro que quieres continuar?');
+    if (!continuar) return;
+  }
   cfg.url = syncUrl;
   cfg.syncSecret = params.get('syncSecret') || '';
   const sucursal = params.get('sucursal');
@@ -5899,7 +6278,11 @@ function calcularDesgloseCopias(apertura, cierre) {
   return Object.values(mapa);
 }
 
-function buildCorteHTML(corte) {
+// paraCorreo=true cambia el QR de <svg> inline a <img src="cid:corte_qr">
+// (ver buildCorteQrPngBase64() arriba) — el ticket que se imprime sigue
+// usando el <svg> vectorial de siempre, que ahí sí se ve nítido y no pasa
+// por ningún sanitizador de correo.
+function buildCorteHTML(corte, paraCorreo=false) {
   const negocio = esc(cfg.nombre || 'Mi Negocio');
   const fFmt = d => `${d.toLocaleDateString('es-MX',{day:'2-digit',month:'2-digit',year:'numeric'})} ${d.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}`;
   const row = (label, val, extra='') => `<div style="display:flex;justify-content:space-between;${extra}"><span>${label}</span><span>${val}</span></div>`;
@@ -5985,15 +6368,19 @@ function buildCorteHTML(corte) {
     ` : ''}
     <div style="border-top:1px dashed #999;margin:8px 0"></div>
     <div style="text-align:center;font-size:10px;color:#999;margin-bottom:6px">Folio: ${esc(corte.folio)}${corte.codigoEmpleado ? ' · '+esc(corte.codigoEmpleado) : ''}</div>
-    <div style="display:flex;justify-content:center;margin-bottom:4px">${buildCorteQrSvg(buildCorteQrPayload(corte))}</div>
+    <div style="display:flex;justify-content:center;margin-bottom:4px">${paraCorreo ? '<img src="cid:corte_qr" alt="QR de cierre de turno" style="width:180px;height:180px">' : buildCorteQrSvg(buildCorteQrPayload(corte))}</div>
     <div style="text-align:center;font-size:10px;color:#999">Generado por NovaPOS</div>`;
 }
 
-function imprimirCorte(corte) {
+// winExistente: ventana ya abierta de antemano (ver sincronizarYCerrarModalCierre())
+// para el caso en que imprimir ocurre DESPUÉS de un await — si esta función
+// abriera la ventana en ese momento, el navegador ya no la asocia con el
+// toque del usuario y puede bloquearla en silencio como popup no solicitado.
+function imprimirCorte(corte, winExistente) {
   const anchoPapel = cfg.ticketAncho === '58' ? '58' : '80';
   const anchoContenido = anchoPapel === '58' ? '48mm' : '72mm';
   const html = buildCorteHTML(corte);
-  const win = window.open('', '_blank', 'width=320,height=600,scrollbars=yes');
+  const win = winExistente || window.open('', '_blank', 'width=320,height=600,scrollbars=yes');
   win.document.write(`<!DOCTYPE html>
 <html><head>
 <meta charset="UTF-8">
@@ -6041,7 +6428,8 @@ ${html}
 // contenido no dependen de exponer ninguna otra credencial en el HTML/JS.
 async function enviarCorteCorreo(corte) {
   const asunto = `Corte de turno${corte.vendedor ? ' — '+corte.vendedor : ''} — ${new Date(corte.cierre).toLocaleString('es-MX')}`;
-  const res = await sheetsPost({ action:'send_corte_email', to: cfg.corteEmail, subject: asunto, html: buildCorteHTML(corte) });
+  const qrPngBase64 = buildCorteQrPngBase64(buildCorteQrPayload(corte));
+  const res = await sheetsPost({ action:'send_corte_email', to: cfg.corteEmail, subject: asunto, html: buildCorteHTML(corte, true), qrPngBase64 });
   if (res && res.ok) toast('Resumen de turno enviado por correo ✓', 'ok');
   else toast('No se pudo enviar el resumen por correo' + (res && res.error ? ': '+res.error : ''), 'err');
 }
@@ -6109,6 +6497,11 @@ async function abrirCaja() {
   document.getElementById('caja-open').style.display='block';
   updateBadge(); renderCaja();
   toast(vendedorNombre ? `Caja abierta ✓ — turno de ${vendedorNombre}` : 'Caja abierta ✓');
+  // Obligatorio en CADA apertura (no solo la primera vez) — el Device ID
+  // vive únicamente en localStorage de este dispositivo y se ha visto
+  // desaparecer sin que nadie borre caché a propósito, así que confirmar
+  // aquí es más confiable que asumir que lo guardado la vez anterior sigue.
+  abrirModalTerminalMp(true);
   } catch (err) {
     console.error('[NovaPOS] Error al abrir caja:', err);
     toast('No se pudo abrir la caja: ' + err.message, 'err');
@@ -6438,11 +6831,56 @@ async function confirmarCierreCaja() {
   updateBadge(); renderCaja();
   toast('Caja cerrada. Corte generado ✓');
 
-  imprimirCorte(corte);
-  if (cfg.corteEmail && cfg.url) enviarCorteCorreo(corte);
+  abrirModalSyncCierre(corte);
   } catch (err) {
     console.error('[NovaPOS] Error al cerrar caja:', err);
     toast('No se pudo cerrar la caja: ' + err.message + ' — la caja SIGUE ABIERTA, vuelve a intentar', 'err');
+  }
+}
+
+// Corte pendiente de imprimir mientras el cajero sincroniza en
+// modal-sync-cierre — se guarda aparte (no como argumento en el onclick del
+// botón) porque un objeto completo no cabe limpio en un atributo HTML.
+let corteCierrePendiente = null;
+
+function abrirModalSyncCierre(corte) {
+  corteCierrePendiente = corte;
+  // Sin Google Sheets configurado, o en un dispositivo de rol "Sucursal"
+  // (que bloqueadoEnSucursal() no deja hacer sync_all — ver guardarRolDispositivo()),
+  // no hay nada que sincronizar aquí: se imprime directo, como siempre.
+  if (!cfg.url || cfg.rolDispositivo === 'sucursal') { imprimirCorte(corte); if (cfg.corteEmail && cfg.url) enviarCorteCorreo(corte); return; }
+  const btn = document.getElementById('cierre-sync-btn');
+  btn.disabled = false;
+  btn.textContent = '⬆ Sincronizar ahora';
+  openModal('modal-sync-cierre');
+}
+
+// Un solo toque: el botón se bloquea de inmediato para que no se pueda
+// volver a tocar mientras sincroniza (ver disabled más abajo). Solo si
+// subirSyncCompleto_() termina bien se cierra la ventana sola e imprime —
+// si falla, se desbloquea para reintentar, la ventana NO se puede cerrar
+// de otra forma (no tiene botón de cerrar, ver modal-sync-cierre).
+async function sincronizarYCerrarModalCierre() {
+  const btn = document.getElementById('cierre-sync-btn');
+  btn.disabled = true;
+  btn.textContent = 'Sincronizando…';
+  // Se abre la ventana del ticket YA, en blanco, todavía dentro de este
+  // mismo clic — y se rellena hasta que la sincronización termine bien (ver
+  // el comentario de winExistente en imprimirCorte()). Si falla, se cierra
+  // sin haber mostrado nada.
+  const winTicket = window.open('', '_blank', 'width=320,height=600,scrollbars=yes');
+  const { ok, error } = await subirSyncCompleto_();
+  if (ok) {
+    closeModal('modal-sync-cierre');
+    const corte = corteCierrePendiente;
+    corteCierrePendiente = null;
+    imprimirCorte(corte, winTicket);
+    if (cfg.corteEmail && cfg.url) enviarCorteCorreo(corte);
+  } else {
+    if (winTicket) winTicket.close();
+    btn.disabled = false;
+    btn.textContent = '⬆ Sincronizar ahora';
+    toast('Error al sincronizar' + (error ? ': ' + error : '') + ' — vuelve a intentar', 'err');
   }
 }
 
