@@ -6164,6 +6164,20 @@ function aplicarVinculacionPorQR() {
   const params = new URLSearchParams(location.search);
   const syncUrl = params.get('syncUrl');
   if (!syncUrl) return;
+  // Si este dispositivo YA tiene una URL de Google Sheets configurada y es
+  // DISTINTA a la que trae el link, no se aplica en silencio — un enlace de
+  // vinculación que haya quedado guardado sin querer como acceso directo
+  // (p.ej. "Añadir a pantalla de inicio" mientras la dirección todavía traía
+  // ?syncUrl=..., ver generarQrVincular()) reconectaría el dispositivo hacia
+  // OTRO negocio y borraría todo lo local CADA VEZ que se abre — sin este
+  // candado eso pasó realmente: repintó un dispositivo de otro negocio hacia
+  // esta misma hoja y borró sus datos. La URL se limpia de inmediato en
+  // cualquier caso, para no dejar la clave secreta a la vista.
+  if (cfg.url && cfg.url !== syncUrl) {
+    history.replaceState({}, '', location.pathname);
+    const continuar = confirm('Este enlace quiere conectar este dispositivo a OTRA hoja de cálculo/negocio distinta a la que ya tiene configurada — esto BORRARÁ todos los datos guardados en este dispositivo. ¿Seguro que quieres continuar?');
+    if (!continuar) return;
+  }
   cfg.url = syncUrl;
   cfg.syncSecret = params.get('syncSecret') || '';
   const sucursal = params.get('sucursal');
