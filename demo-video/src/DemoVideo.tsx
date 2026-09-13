@@ -3,6 +3,7 @@ import { fade } from "@remotion/transitions/fade";
 import { Scene } from "./Scene";
 import { Intro } from "./Intro";
 import { Outro } from "./Outro";
+import { Narration } from "./Narration";
 
 const T = 15; // duración del fundo entre escenas, en frames (0.5s a 30fps)
 
@@ -11,6 +12,7 @@ export const DemoVideo: React.FC = () => {
     <TransitionSeries>
       <TransitionSeries.Sequence durationInFrames={105} name="Intro">
         <Intro />
+        <Narration id="intro" />
       </TransitionSeries.Sequence>
 
       <TransitionSeries.Transition presentation={fade()} timing={linearTiming({ durationInFrames: T })} />
@@ -21,6 +23,7 @@ export const DemoVideo: React.FC = () => {
           subtitle="Escanea el código de barras y cobra en efectivo, tarjeta, transferencia, fiado o Mercado Pago."
           image="screens/01-ventas.png"
         />
+        <Narration id="ventas" />
       </TransitionSeries.Sequence>
 
       <TransitionSeries.Transition presentation={fade()} timing={linearTiming({ durationInFrames: T })} />
@@ -31,6 +34,7 @@ export const DemoVideo: React.FC = () => {
           subtitle="El cambio se calcula solo, con botones de montos rápidos para no perder tiempo en el mostrador."
           image="screens/02-cobrar.png"
         />
+        <Narration id="cobrar" />
       </TransitionSeries.Sequence>
 
       <TransitionSeries.Transition presentation={fade()} timing={linearTiming({ durationInFrames: T })} />
@@ -41,6 +45,7 @@ export const DemoVideo: React.FC = () => {
           subtitle="Cada turno arranca en limpio: saldo, ingresos y egresos siempre acotados a la caja de hoy."
           image="screens/03-caja.png"
         />
+        <Narration id="caja" />
       </TransitionSeries.Sequence>
 
       <TransitionSeries.Transition presentation={fade()} timing={linearTiming({ durationInFrames: T })} />
@@ -51,6 +56,7 @@ export const DemoVideo: React.FC = () => {
           subtitle="Carga tu saldo, registra cada recarga y la comisión se suma directo a la ganancia del turno."
           image="screens/05-recargas-historial.png"
         />
+        <Narration id="recargas" />
       </TransitionSeries.Sequence>
 
       <TransitionSeries.Transition presentation={fade()} timing={linearTiming({ durationInFrames: T })} />
@@ -61,6 +67,7 @@ export const DemoVideo: React.FC = () => {
           subtitle="Alertas de stock bajo y por vencer, entradas de mercancía y valor total del inventario en vivo."
           image="screens/06-inventario.png"
         />
+        <Narration id="inventario" />
       </TransitionSeries.Sequence>
 
       <TransitionSeries.Transition presentation={fade()} timing={linearTiming({ durationInFrames: T })} />
@@ -71,6 +78,7 @@ export const DemoVideo: React.FC = () => {
           subtitle="Filtra por período o empleado y ve el margen real de tu negocio, no solo lo que vendiste."
           image="screens/07-reportes.png"
         />
+        <Narration id="reportes" />
       </TransitionSeries.Sequence>
 
       <TransitionSeries.Transition presentation={fade()} timing={linearTiming({ durationInFrames: T })} />
@@ -81,11 +89,13 @@ export const DemoVideo: React.FC = () => {
           subtitle="Giro, datos fiscales, seguridad por NIP, impresora térmica y sincronización con Google Sheets."
           image="screens/08-config.png"
         />
+        <Narration id="config" />
       </TransitionSeries.Sequence>
 
       <TransitionSeries.Transition presentation={fade()} timing={linearTiming({ durationInFrames: T })} />
       <TransitionSeries.Sequence durationInFrames={120} name="Outro">
         <Outro />
+        <Narration id="outro" />
       </TransitionSeries.Sequence>
     </TransitionSeries>
   );

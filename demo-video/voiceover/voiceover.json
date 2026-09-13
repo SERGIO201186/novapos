@@ -1,0 +1,38 @@
+[
+  {
+    "id": "intro",
+    "text": "NovaPOS PRO. El sistema de punto de venta hecho para tu negocio."
+  },
+  {
+    "id": "ventas",
+    "text": "Vende y cobra en segundos. Escanea el código de barras y cobra en efectivo, tarjeta, transferencia, fiado o Mercado Pago."
+  },
+  {
+    "id": "cobrar",
+    "text": "Cinco formas de cobrar, y el cambio se calcula solo. Botones de montos rápidos para no perder tiempo en el mostrador."
+  },
+  {
+    "id": "caja",
+    "text": "Abre y cierra tu turno sin sorpresas. Saldo, ingresos y egresos, siempre claros y acotados a la caja de hoy."
+  },
+  {
+    "id": "recargas",
+    "text": "Nuevo: recargas telefónicas. Carga tu saldo, registra cada recarga, y la comisión se suma directo a tu ganancia."
+  },
+  {
+    "id": "inventario",
+    "text": "Tu catálogo, siempre bajo control. Alertas de stock bajo, de productos por vencer, y el valor total de tu inventario en vivo."
+  },
+  {
+    "id": "reportes",
+    "text": "Ventas, costo y ganancia, al momento. Filtra por período o por empleado y conoce el margen real de tu negocio."
+  },
+  {
+    "id": "config",
+    "text": "Se adapta a tu negocio. Tu giro, tus datos fiscales, seguridad por NIP, impresora térmica y sincronización con Google Sheets."
+  },
+  {
+    "id": "outro",
+    "text": "Todo tu negocio, en un solo lugar. NovaPOS PRO, por Omnia Technology."
+  }
+]

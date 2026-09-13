@@ -37,6 +37,28 @@ npx remotion render
 npx remotion upgrade
 ```
 
+## Narración con ElevenLabs
+
+El video incluye narración en off por escena. El guion vive en
+`voiceover/voiceover.json` (versión legible en `voiceover/guion.md`).
+
+Para generar (o regenerar) los audios:
+
+```console
+ELEVENLABS_API_KEY=tu_api_key npm run voiceover
+```
+
+Esto crea un `.mp3` por escena en `public/audio/`. Si un archivo aún no
+existe, esa escena simplemente se reproduce sin sonido (no rompe el preview
+ni el render). Variables opcionales:
+
+- `ELEVENLABS_VOICE_ID`: ID de la voz de ElevenLabs a usar (por defecto una
+  voz multilingüe que funciona bien en español).
+- `ELEVENLABS_MODEL_ID`: modelo de TTS (por defecto `eleven_multilingual_v2`).
+
+Si alguna narración generada dura más que su escena, alarga el
+`durationInFrames` correspondiente en `src/DemoVideo.tsx` (30 fps).
+
 ## Docs
 
 Get started with Remotion by reading the [fundamentals page](https://www.remotion.dev/docs/the-fundamentals).
