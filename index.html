@@ -6380,7 +6380,14 @@ function calcularDesgloseCopias(apertura, cierre) {
 function buildCorteHTML(corte, paraCorreo=false) {
   const negocio = esc(cfg.nombre || 'Mi Negocio');
   const fFmt = d => `${d.toLocaleDateString('es-MX',{day:'2-digit',month:'2-digit',year:'numeric'})} ${d.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}`;
-  const row = (label, val, extra='') => `<div style="display:flex;justify-content:space-between;${extra}"><span>${label}</span><span>${val}</span></div>`;
+  // Tabla en vez de flexbox: el ticket impreso se ve en un navegador real
+  // (que sí soporta flex), pero este mismo HTML también se manda por correo
+  // (ver enviarCorteCorreo()/buildCorteHTML(corte, true)) y clientes de
+  // correo como Gmail en Android ignoran "display:flex" — la etiqueta y el
+  // valor de cada renglón terminaban pegados sin separación ("Vendedor:Ruth
+  // Liliana...") en vez de aparecer en extremos opuestos. Una tabla HTML sí
+  // se respeta de forma universal en cualquier cliente de correo.
+  const row = (label, val, extra='') => `<table role="presentation" width="100%" style="border-collapse:collapse;${extra}"><tr><td align="left" style="padding:0">${label}</td><td align="right" style="padding:0">${val}</td></tr></table>`;
   // ingresos = ventas + recargas completadas (monto + comisión) +
   // movimientos manuales (cada venta/recarga se registra como un "ingreso"
   // con el mismo monto — ver confirmarVenta() y procesarRecarga()), así que
@@ -6419,13 +6426,11 @@ function buildCorteHTML(corte, paraCorreo=false) {
     ${otrosIngresos       ? row('Otros ingresos', mxn(otrosIngresos)) : ''}
     ${corte.egresos        ? row('Egresos', '-'+mxn(corte.egresos)) : ''}
     <div style="border-top:1px dashed #999;margin:6px 0"></div>
-    <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:700"><span>SALDO EN CAJA</span><span>${mxn(corte.saldoFinal)}</span></div>
+    ${row('SALDO EN CAJA', mxn(corte.saldoFinal), 'font-size:16px;font-weight:700')}
     <div style="border-top:1px dashed #999;margin:6px 0"></div>
     ${row('Efectivo esperado', mxn(corte.efectivoEsperado))}
     ${row('Efectivo contado', mxn(corte.efectivoContado))}
-    <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;${corte.faltante>0?'color:#dc2626':corte.faltante<0?'color:#059669':''}">
-      <span>${corte.faltante>0?'FALTANTE':corte.faltante<0?'SOBRANTE':'DIFERENCIA'}</span><span>${mxn(Math.abs(corte.faltante))}</span>
-    </div>
+    ${row(corte.faltante>0?'FALTANTE':corte.faltante<0?'SOBRANTE':'DIFERENCIA', mxn(Math.abs(corte.faltante)), 'font-size:13px;font-weight:700;'+(corte.faltante>0?'color:#dc2626':corte.faltante<0?'color:#059669':''))}
     ${tieneContadores ? `
     <div style="border-top:1px dashed #999;margin:6px 0"></div>
     <div style="font-size:11px;font-weight:700;margin-bottom:2px">🖨️ CONTADOR DE IMPRESORA</div>
@@ -6456,14 +6461,12 @@ function buildCorteHTML(corte, paraCorreo=false) {
     ${(tieneRecargasTel || tieneRecargasMP) ? `
     <div style="border-top:1px dashed #999;margin:6px 0"></div>
     ${row('Venta de artículos', mxn(corte.ventasTotal), 'font-size:11px')}
-    <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;margin-top:4px">
-      <span>TOTAL A ENTREGAR</span><span>${mxn(totalAEntregar)}</span>
-    </div>
+    ${row('TOTAL A ENTREGAR', mxn(totalAEntregar), 'font-size:13px;font-weight:700;margin-top:4px')}
     <div style="font-size:9px;color:#999;margin-top:2px">Venta de artículos + comisión de recargas — separado del dinero de las recargas, que va aparte.</div>
     ` : ''}
     <div style="border-top:1px dashed #999;margin:8px 0"></div>
     <div style="text-align:center;font-size:10px;color:#999;margin-bottom:6px">Folio: ${esc(corte.folio)}${corte.codigoEmpleado ? ' · '+esc(corte.codigoEmpleado) : ''}</div>
-    <div style="display:flex;justify-content:center;margin-bottom:4px">${paraCorreo ? '<img src="cid:corte_qr" alt="QR de cierre de turno" style="width:180px;height:180px">' : buildCorteQrSvg(buildCorteQrPayload(corte))}</div>
+    <div style="text-align:center;margin-bottom:4px">${paraCorreo ? '<img src="cid:corte_qr" alt="QR de cierre de turno" style="width:180px;height:180px">' : buildCorteQrSvg(buildCorteQrPayload(corte))}</div>
     <div style="text-align:center;font-size:10px;color:#999">Generado por NovaPOS</div>`;
 }
 
