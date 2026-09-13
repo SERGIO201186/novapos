@@ -3685,6 +3685,12 @@ async function iniciarApp() {
   // ocultando lo que otros dispositivos ya habían subido. Intentar bajarlo primero.
   if (!db.productos.length && cfg.url) await cargarDeSheets(false);
   if (!db.productos.length) loadDemoData();
+  // Ver el comentario de sincronizarConfigYPines_() — a diferencia de
+  // cargarDeSheets() de arriba (que solo se dispara si no hay catálogo
+  // local), esto siempre revisa que "Copias e impresiones"/"Recargas MP"/
+  // etc. sigan como están en la nube, sin depender de que falte algo más
+  // para notarlo. Sin "await", mismo motivo que recuperarCajaDeNube_().
+  sincronizarConfigYPines_();
   // Ver el comentario de recuperarCajaDeNube_() — si este dispositivo
   // arranca con la caja cerrada, puede ser un turno legítimo (nunca se abrió
   // hoy) o uno que se perdió a medio turno; se pregunta antes de asumir
@@ -4096,6 +4102,48 @@ const DIAS_HISTORIAL_SYNC = 90;
 // completo=false (default) solo pide las últimas DIAS_HISTORIAL_SYNC días y
 // las COMBINA con las que ya había localmente — así ventas más viejas que
 // ese rango, que este dispositivo ya tenía guardadas, no se pierden.
+
+// Aplica lo que trae la hoja "config" (genérica, clave/valor) y los NIP —
+// extraído de cargarDeSheets() para poder reusarlo también en un refresco
+// ligero que no baja el catálogo/ventas completos (ver
+// sincronizarConfigYPines_()), sin duplicar esta lista de campos dos veces.
+function aplicarConfigDescargada_(configRaw, pins) {
+  const configMap = Object.fromEntries((configRaw||[]).map(r => [String(r.key), r.value]));
+  if ('nombre_negocio' in configMap) cfg.nombre = String(configMap.nombre_negocio||'');
+  if ('rfc'            in configMap) cfg.rfc    = String(configMap.rfc||'');
+  if ('telefono'       in configMap) cfg.tel    = String(configMap.telefono||'');
+  if ('direccion'      in configMap) cfg.dir    = String(configMap.direccion||'');
+  if ('iva'            in configMap) cfg.iva    = parseFloat(configMap.iva) || cfg.iva;
+  if ('giro'           in configMap) cfg.giro   = String(configMap.giro||cfg.giro);
+  if ('corte_email'    in configMap) cfg.corteEmail = String(configMap.corte_email||'');
+  if ('alertas_email'  in configMap) cfg.alertasEmail = String(configMap.alertas_email||'');
+  if ('control_copias' in configMap) cfg.controlCopias = configMap.control_copias === '1' || configMap.control_copias === true;
+  if ('control_recargas_mp' in configMap) cfg.controlRecargasMP = configMap.control_recargas_mp === '1' || configMap.control_recargas_mp === true;
+  if (pins) { cfg.ownerPin = pins.ownerPin || ''; cfg.invPin = pins.invPin || ''; }
+  saveCfg();
+  if (cfg.controlCopias) sembrarServiciosCopias();
+}
+
+// cfg (nombre del negocio, "Copias e impresiones", "Recargas MP", correo de
+// cierre, etc.) vive en su propio localStorage, separado de db — puede
+// perderse por su cuenta (mismo tipo de pérdida local que motivó
+// subirEstadoCajaANube_()/recuperarCajaDeNube_()) sin que el catálogo de
+// productos se vea afectado. cargarDeSheets() nunca se dispara solo en ese
+// caso (solo lo hace si db.productos está vacío), así que un dispositivo
+// podía quedarse mostrando el cierre de caja SIN contadores de impresora ni
+// recargas MP aunque el negocio sí las tenga activadas en la nube — sin
+// ningún aviso, porque nada más se veía "raro". Por eso esto se llama
+// SIEMPRE al arrancar (ver iniciarApp()), sin esperar a que falte algo más.
+// Es una consulta chica (nada más la hoja "config" y los NIP, no el
+// catálogo/ventas completos) y no pisa nada si Sheets no responde.
+async function sincronizarConfigYPines_() {
+  if (!cfg.url) return;
+  const [configRaw, pins] = await Promise.all([sheetsGet('config'), sheetsGetPins()]);
+  if (configRaw === null) return;
+  aplicarConfigDescargada_(configRaw, pins);
+  actualizarCamposContadorImpresora();
+}
+
 async function cargarDeSheets(avisar = true, completo = false) {
   if (!cfg.url) return false;
   setSyncState('syncing');
@@ -4152,24 +4200,7 @@ async function cargarDeSheets(avisar = true, completo = false) {
     db.recargasMP = normalizarFilasSheet('recargas_mp', recargasMPRaw);
     db.recargaSaldoMovs = normalizarFilasSheet('recarga_saldo_movs', recargaSaldoMovsRaw);
     save();
-
-    // Trae también los datos del negocio que guardarConfigEnSheets() sube —
-    // antes solo se subían, nunca se bajaban, así que un dispositivo nuevo
-    // se quedaba sin el nombre/RFC/etc. configurados en otro.
-    const configMap = Object.fromEntries((configRaw||[]).map(r => [String(r.key), r.value]));
-    if ('nombre_negocio' in configMap) cfg.nombre = String(configMap.nombre_negocio||'');
-    if ('rfc'            in configMap) cfg.rfc    = String(configMap.rfc||'');
-    if ('telefono'       in configMap) cfg.tel    = String(configMap.telefono||'');
-    if ('direccion'      in configMap) cfg.dir    = String(configMap.direccion||'');
-    if ('iva'            in configMap) cfg.iva    = parseFloat(configMap.iva) || cfg.iva;
-    if ('giro'           in configMap) cfg.giro   = String(configMap.giro||cfg.giro);
-    if ('corte_email'    in configMap) cfg.corteEmail = String(configMap.corte_email||'');
-    if ('alertas_email'  in configMap) cfg.alertasEmail = String(configMap.alertas_email||'');
-    if ('control_copias' in configMap) cfg.controlCopias = configMap.control_copias === '1' || configMap.control_copias === true;
-    if ('control_recargas_mp' in configMap) cfg.controlRecargasMP = configMap.control_recargas_mp === '1' || configMap.control_recargas_mp === true;
-    if (pins) { cfg.ownerPin = pins.ownerPin || ''; cfg.invPin = pins.invPin || ''; }
-    saveCfg();
-    if (cfg.controlCopias) sembrarServiciosCopias();
+    aplicarConfigDescargada_(configRaw, pins);
 
     setSyncState('ok', 'Descargado de Google Sheets');
     if (avisar) toast('Datos descargados de Google Sheets ✓', 'ok');
@@ -6380,7 +6411,14 @@ function calcularDesgloseCopias(apertura, cierre) {
 function buildCorteHTML(corte, paraCorreo=false) {
   const negocio = esc(cfg.nombre || 'Mi Negocio');
   const fFmt = d => `${d.toLocaleDateString('es-MX',{day:'2-digit',month:'2-digit',year:'numeric'})} ${d.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}`;
-  const row = (label, val, extra='') => `<div style="display:flex;justify-content:space-between;${extra}"><span>${label}</span><span>${val}</span></div>`;
+  // Tabla en vez de flexbox: el ticket impreso se ve en un navegador real
+  // (que sí soporta flex), pero este mismo HTML también se manda por correo
+  // (ver enviarCorteCorreo()/buildCorteHTML(corte, true)) y clientes de
+  // correo como Gmail en Android ignoran "display:flex" — la etiqueta y el
+  // valor de cada renglón terminaban pegados sin separación ("Vendedor:Ruth
+  // Liliana...") en vez de aparecer en extremos opuestos. Una tabla HTML sí
+  // se respeta de forma universal en cualquier cliente de correo.
+  const row = (label, val, extra='') => `<table role="presentation" width="100%" style="border-collapse:collapse;${extra}"><tr><td align="left" style="padding:0">${label}</td><td align="right" style="padding:0">${val}</td></tr></table>`;
   // ingresos = ventas + recargas completadas (monto + comisión) +
   // movimientos manuales (cada venta/recarga se registra como un "ingreso"
   // con el mismo monto — ver confirmarVenta() y procesarRecarga()), así que
@@ -6419,13 +6457,11 @@ function buildCorteHTML(corte, paraCorreo=false) {
     ${otrosIngresos       ? row('Otros ingresos', mxn(otrosIngresos)) : ''}
     ${corte.egresos        ? row('Egresos', '-'+mxn(corte.egresos)) : ''}
     <div style="border-top:1px dashed #999;margin:6px 0"></div>
-    <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:700"><span>SALDO EN CAJA</span><span>${mxn(corte.saldoFinal)}</span></div>
+    ${row('SALDO EN CAJA', mxn(corte.saldoFinal), 'font-size:16px;font-weight:700')}
     <div style="border-top:1px dashed #999;margin:6px 0"></div>
     ${row('Efectivo esperado', mxn(corte.efectivoEsperado))}
     ${row('Efectivo contado', mxn(corte.efectivoContado))}
-    <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;${corte.faltante>0?'color:#dc2626':corte.faltante<0?'color:#059669':''}">
-      <span>${corte.faltante>0?'FALTANTE':corte.faltante<0?'SOBRANTE':'DIFERENCIA'}</span><span>${mxn(Math.abs(corte.faltante))}</span>
-    </div>
+    ${row(corte.faltante>0?'FALTANTE':corte.faltante<0?'SOBRANTE':'DIFERENCIA', mxn(Math.abs(corte.faltante)), 'font-size:13px;font-weight:700;'+(corte.faltante>0?'color:#dc2626':corte.faltante<0?'color:#059669':''))}
     ${tieneContadores ? `
     <div style="border-top:1px dashed #999;margin:6px 0"></div>
     <div style="font-size:11px;font-weight:700;margin-bottom:2px">🖨️ CONTADOR DE IMPRESORA</div>
@@ -6456,14 +6492,12 @@ function buildCorteHTML(corte, paraCorreo=false) {
     ${(tieneRecargasTel || tieneRecargasMP) ? `
     <div style="border-top:1px dashed #999;margin:6px 0"></div>
     ${row('Venta de artículos', mxn(corte.ventasTotal), 'font-size:11px')}
-    <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;margin-top:4px">
-      <span>TOTAL A ENTREGAR</span><span>${mxn(totalAEntregar)}</span>
-    </div>
+    ${row('TOTAL A ENTREGAR', mxn(totalAEntregar), 'font-size:13px;font-weight:700;margin-top:4px')}
     <div style="font-size:9px;color:#999;margin-top:2px">Venta de artículos + comisión de recargas — separado del dinero de las recargas, que va aparte.</div>
     ` : ''}
     <div style="border-top:1px dashed #999;margin:8px 0"></div>
     <div style="text-align:center;font-size:10px;color:#999;margin-bottom:6px">Folio: ${esc(corte.folio)}${corte.codigoEmpleado ? ' · '+esc(corte.codigoEmpleado) : ''}</div>
-    <div style="display:flex;justify-content:center;margin-bottom:4px">${paraCorreo ? '<img src="cid:corte_qr" alt="QR de cierre de turno" style="width:180px;height:180px">' : buildCorteQrSvg(buildCorteQrPayload(corte))}</div>
+    <div style="text-align:center;margin-bottom:4px">${paraCorreo ? '<img src="cid:corte_qr" alt="QR de cierre de turno" style="width:180px;height:180px">' : buildCorteQrSvg(buildCorteQrPayload(corte))}</div>
     <div style="text-align:center;font-size:10px;color:#999">Generado por NovaPOS</div>`;
 }
 
