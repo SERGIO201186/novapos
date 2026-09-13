@@ -1709,23 +1709,6 @@ body.modo-sucursal .admin-only{display:none!important}
   </div>
 </div>
 
-<!-- Sincronizar antes de imprimir el ticket de cierre — obligatoria (sin
-     botón de cerrar): un solo toque en "Sincronizar ahora" sube TODO lo de
-     este dispositivo a Google Sheets (mismo reemplazo total que ⬆
-     Sincronizar ahora en Configuración, ver syncNow()/subirSyncCompleto_())
-     y, solo si terminó bien, esta ventana se cierra sola y manda a imprimir
-     el ticket — así el ticket y la próxima apertura siempre parten de
-     información ya subida a la nube. Ver abrirModalSyncCierre() /
-     sincronizarYCerrarModalCierre(), llamadas desde confirmarCierreCaja(). -->
-<div class="modal-bg" id="modal-sync-cierre" data-lock="1">
-  <div class="modal" style="max-width:360px;text-align:center">
-    <div style="font-size:32px;margin-bottom:8px">☁️</div>
-    <h3 style="margin-bottom:8px">Sincroniza antes de imprimir</h3>
-    <p style="font-size:13px;color:var(--txt2);margin-bottom:16px">Sube la información de este cierre — ventas, inventario, recargas y contador de la impresora — a Google Sheets, para que el ticket y la próxima apertura de caja partan de datos actualizados.</p>
-    <button class="btn btn-primary btn-full" id="cierre-sync-btn" onclick="sincronizarYCerrarModalCierre()">⬆ Sincronizar ahora</button>
-  </div>
-</div>
-
 <div class="modal-bg" id="modal-cierre-caja">
   <div class="modal" style="max-width:380px">
     <h3>⏹ Cerrar caja</h3>
@@ -3702,6 +3685,14 @@ async function iniciarApp() {
   // ocultando lo que otros dispositivos ya habían subido. Intentar bajarlo primero.
   if (!db.productos.length && cfg.url) await cargarDeSheets(false);
   if (!db.productos.length) loadDemoData();
+  // Ver el comentario de recuperarCajaDeNube_() — si este dispositivo
+  // arranca con la caja cerrada, puede ser un turno legítimo (nunca se abrió
+  // hoy) o uno que se perdió a medio turno; se pregunta antes de asumir
+  // cualquiera de los dos. Sin "await": es solo una revisión de respaldo que
+  // puede tardar con señal débil, y no debe atrasar que el resto de la app
+  // (inventario, POS, etc.) se vea y se pueda usar de inmediato — ella misma
+  // refresca la pantalla de Caja si termina recuperando algo.
+  recuperarCajaDeNube_();
   // Dos turnos por default (Mañana/Noche) para no arrancar en blanco — el
   // negocio los edita, borra o agrega más desde Configuración cuando quiera.
   // Solo se siembran si de verdad no hay ninguno (ni local ni bajado de
@@ -3748,14 +3739,13 @@ async function iniciarApp() {
   document.getElementById('cfg-giro').value   = cfg.giro||'generico';
   document.getElementById('cfg-iva').value    = cfg.iva ?? 16;
   document.getElementById('cfg-ticket-ancho').value = cfg.ticketAncho || '80';
-  // data-lock="1" marca los modales "obligatorios" (modal-sync-cierre,
-  // modal-terminal-mp cuando se abre desde abrirCaja()) — antes este
-  // listener los cerraba igual que cualquier otro con solo tocar el fondo
-  // oscuro, así que un cajero que tocaba fuera del cuadro por accidente
-  // (muy fácil en una pantalla táctil) se saltaba la sincronización o la
-  // vinculación de la terminal sin darse cuenta, dejando el corte sin subir
-  // o el ticket sin imprimir. Ver abrirModalTerminalMp() y el div de
-  // modal-sync-cierre.
+  // data-lock="1" marca los modales "obligatorios" (modal-terminal-mp cuando
+  // se abre desde abrirCaja()) — antes este listener los cerraba igual que
+  // cualquier otro con solo tocar el fondo oscuro, así que un cajero que
+  // tocaba fuera del cuadro por accidente (muy fácil en una pantalla
+  // táctil) se saltaba la vinculación de la terminal sin darse cuenta,
+  // dejando el dispositivo sin Device ID para cobrar con tarjeta. Ver
+  // abrirModalTerminalMp().
   document.querySelectorAll('.modal-bg').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m && m.dataset.lock!=='1') m.classList.remove('open'); }));
   instalarAntiDobleToque();
   focusBarcode();
@@ -3928,6 +3918,62 @@ async function sheetsPost(body) {
 async function sheetsUpsert(sheet, data) { return sheetsPost({action:'upsert', sheet, data}); }
 async function sheetsDelete(sheet, id) { return sheetsPost({action:'delete', sheet, id}); }
 
+// db.caja (si el turno está abierto, fondo, hora de apertura, contadores de
+// impresora) vivía SOLO en localStorage — si la tablet se apaga de golpe, se
+// le acaba la batería, Android le limpia datos por poco espacio, o la app se
+// cierra por cualquier motivo ajeno a NovaPOS, ese localStorage puede perderse
+// aunque cada venta/movimiento del turno ya se haya sincronizado bien por su
+// cuenta (ver registrarVentaCore()) — al volver a entrar, la app arrancaba
+// con "caja cerrada" sin ninguna forma de recuperar que un turno seguía
+// abierto, aunque sus ventas siguieran a salvo en Sheets. Se respalda aquí
+// mismo en la hoja "config" (genérica, clave/valor, ya soporta cualquier
+// clave) para poder reconstruirlo — ver recuperarCajaDeNube_(), llamada
+// desde iniciarApp(). La clave incluye la sucursal porque cada dispositivo
+// tiene su propia caja física independiente; sin eso, dos cajas de la misma
+// hoja de cálculo se pisarían la una a la otra.
+// A diferencia de subirSyncCompleto_() (sync_all, bloqueado en modo Sucursal
+// porque reemplaza TODO), esto es un upsert normal de una sola fila chica —
+// tan seguro como cualquier saveAndSyncFast(), disponible en cualquier rol.
+function claveEstadoCaja_() { return 'caja_estado::' + (cfg.sucursal || '_default'); }
+function subirEstadoCajaANube_() {
+  if (!cfg.url) return;
+  sheetsUpsert('config', { key: claveEstadoCaja_(), value: JSON.stringify(db.caja) });
+}
+
+// Se llama una vez al arrancar (iniciarApp()) cuando este dispositivo cree
+// que la caja está cerrada: si Sheets tiene un respaldo reciente marcado
+// "abierta" para esta misma sucursal, es que el turno se perdió localmente
+// sin haberse cerrado de verdad (ver el comentario arriba) — se ofrece
+// recuperarlo en vez de dejar que el cajero abra un turno nuevo sin darse
+// cuenta de que el de antes sigue pendiente de cerrar y cobrar. Con más de
+// ~20 horas de antigüedad ya no se ofrece: a esas alturas es casi seguro un
+// olvido de días atrás, no el turno de ahorita, y sería más confuso que útil.
+async function recuperarCajaDeNube_() {
+  if (db.caja.abierta || !cfg.url) return;
+  const filas = await sheetsGet('config');
+  if (!filas) return;
+  const fila = filas.find(r => String(r.key) === claveEstadoCaja_());
+  if (!fila || !fila.value) return;
+  let estado;
+  try { estado = JSON.parse(fila.value); } catch { return; }
+  if (!estado || !estado.abierta || !estado.fechaApertura) return;
+  const horas = (Date.now() - new Date(estado.fechaApertura).getTime()) / 3600000;
+  if (!(horas >= 0 && horas <= 20)) return;
+  const hora = new Date(estado.fechaApertura).toLocaleTimeString('es-MX', {hour:'2-digit', minute:'2-digit'});
+  if (confirm(`Se encontró un turno abierto desde las ${hora} que ya no está en este dispositivo (probablemente por un apagón o cierre inesperado de la app) — sus ventas siguen a salvo, pero la caja se vería cerrada sin esto.\n\n¿Recuperar el turno abierto?`)) {
+    db.caja = estado;
+    save();
+    // Esto puede resolver bastante después de que iniciarApp() ya haya
+    // pintado la pantalla de "caja cerrada" (no se le hizo await a
+    // propósito, ver el comentario en iniciarApp()) — se refresca aquí para
+    // que la recuperación se refleje aunque ya haya pasado ese momento.
+    document.getElementById('caja-closed').style.display = 'none';
+    document.getElementById('caja-open').style.display = 'block';
+    updateBadge(); renderCaja();
+    toast('Turno recuperado ✓', 'ok');
+  }
+}
+
 function saveAndSyncFast(sheet, data) {
   save();
   if (!cfg.url) return;
@@ -3947,13 +3993,11 @@ function saveAndDeleteFast(sheet, id) {
 
 // Núcleo del reemplazo total ("sync_all") — lo comparten el botón manual de
 // Configuración (syncNow(), que sí pide confirmación con confirm() porque
-// se puede disparar por accidente en cualquier momento) y la ventana
-// obligatoria de cierre de caja (sincronizarYCerrarModalCierre(), que no
-// repite esa confirmación porque ya es, en sí misma, un paso explícito de
-// un solo toque dentro de un flujo guiado que el cajero no puede saltarse).
-// Regresa {ok, error} en vez de solo avisar con un toast, para que quien
-// llama decida qué hacer según el resultado (el modal de cierre necesita
-// saber si ya puede cerrarse e imprimir, o si debe dejar reintentar).
+// se puede disparar por accidente en cualquier momento) y el cierre de caja
+// (confirmarCierreCaja(), en segundo plano sin confirmación ni bloquear el
+// ticket — ver el comentario ahí). Regresa {ok, error} en vez de solo
+// avisar con un toast, para que quien llama decida qué hacer según el
+// resultado.
 async function subirSyncCompleto_() {
   setSyncState('syncing');
   try {
@@ -4971,6 +5015,7 @@ async function borrarDatosPrueba() {
     await sheetsPost({ action:'sync_all', data:{ productos:[], ventas:[], movimientos:[], facturas:[], cortes:[], recargas:[] } });
   }
   save();
+  subirEstadoCajaANube_();
   const cc = document.getElementById('caja-closed');
   const co = document.getElementById('caja-open');
   if (cc) cc.style.display = 'block';
@@ -6422,15 +6467,11 @@ function buildCorteHTML(corte, paraCorreo=false) {
     <div style="text-align:center;font-size:10px;color:#999">Generado por NovaPOS</div>`;
 }
 
-// winExistente: ventana ya abierta de antemano (ver sincronizarYCerrarModalCierre())
-// para el caso en que imprimir ocurre DESPUÉS de un await — si esta función
-// abriera la ventana en ese momento, el navegador ya no la asocia con el
-// toque del usuario y puede bloquearla en silencio como popup no solicitado.
-function imprimirCorte(corte, winExistente) {
+function imprimirCorte(corte) {
   const anchoPapel = cfg.ticketAncho === '58' ? '58' : '80';
   const anchoContenido = anchoPapel === '58' ? '48mm' : '72mm';
   const html = buildCorteHTML(corte);
-  const win = winExistente || window.open('', '_blank', 'width=320,height=600,scrollbars=yes');
+  const win = window.open('', '_blank', 'width=320,height=600,scrollbars=yes');
   win.document.write(`<!DOCTYPE html>
 <html><head>
 <meta charset="UTF-8">
@@ -6540,9 +6581,11 @@ async function abrirCaja() {
   }
 
   db.caja = {abierta:true, fondo, fechaApertura:new Date().toISOString(), vendedorId, vendedorNombre, contadoresApertura: contadores};
-  // El estado de la caja en vivo es solo local (no hay una hoja "caja" en
-  // la nube) — no hace falta esperar ni disparar una sincronización de red.
   save();
+  // Respaldo en segundo plano por si este dispositivo pierde su localStorage
+  // a medio turno (se apaga, Android le limpia datos, etc.) — ver
+  // subirEstadoCajaANube_() y recuperarCajaDeNube_().
+  subirEstadoCajaANube_();
   document.getElementById('caja-closed').style.display='none';
   document.getElementById('caja-open').style.display='block';
   updateBadge(); renderCaja();
@@ -6569,6 +6612,7 @@ async function cancelarAperturaCaja() {
   if (!confirm('¿Cancelar esta apertura de caja SIN generar corte? Úsalo solo si se abrió por error (por ejemplo, quedó abierta desde hace días o es la apertura de demostración) — no quedará ningún registro de este "cierre".')) return;
   db.caja = {abierta:false, fondo:0, fechaApertura:null};
   save();
+  subirEstadoCajaANube_();
   document.getElementById('caja-closed').style.display='block';
   document.getElementById('caja-open').style.display='none';
   updateBadge(); renderCaja();
@@ -6864,11 +6908,18 @@ async function confirmarCierreCaja() {
   db.cortes.push(corte);
   db.caja = {abierta:false,fondo:0,fechaApertura:null};
   closeModal('modal-cierre-caja');
+  subirEstadoCajaANube_();
   // Se guarda e imprime de inmediato, sin esperar la red — si se esperara
   // aquí a que termine la sincronización, el navegador puede tratar el
   // window.open() del ticket como un popup no solicitado (ya no lo asocia
   // con el toque del usuario) y bloquearlo en silencio. La sincronización
-  // del corte se manda en segundo plano justo después.
+  // del corte se manda en segundo plano justo después. Hubo una versión que
+  // obligaba a tocar "Sincronizar ahora" y esperar a que subiera TODO el
+  // dispositivo antes de imprimir el ticket — se quitó porque, con señal
+  // débil, dejaba al cajero varado sin poder imprimir; la sincronización de
+  // este corte y de cada venta/movimiento ya viaja en segundo plano en
+  // cuanto ocurren (ver saveAndSyncFast()/registrarVentaCore()), así que no
+  // hacía falta bloquear nada aquí para no perder información.
   saveAndSyncFast('cortes', corte);
   recargasMPEntradas.forEach(r => {
     const registro = { id:r.id, fecha:new Date().toISOString(), folioOTelefono:r.ident, monto:r.monto, comision:r.comision, corteFolio:folio, sucursal: cfg.sucursal||'' };
@@ -6881,63 +6932,20 @@ async function confirmarCierreCaja() {
   updateBadge(); renderCaja();
   toast('Caja cerrada. Corte generado ✓');
 
-  abrirModalSyncCierre(corte);
+  imprimirCorte(corte);
+  if (cfg.corteEmail && cfg.url) enviarCorteCorreo(corte);
+  // Reemplazo total de las 5 hojas con lo de este dispositivo (mismo botón
+  // que "Sincronizar ahora" en Configuración) en segundo plano, sin bloquear
+  // el ticket ni pedir confirmación — el cierre de caja ya es, en sí mismo,
+  // un punto natural para dejar todo actualizado en la nube. Si falla (sin
+  // señal, Apps Script caído), no pasa nada grave: cada venta/movimiento del
+  // turno ya se sincronizó por su cuenta al ocurrir (saveAndSyncFast) y el
+  // corte se acaba de mandar arriba; esto solo empareja lo que pudiera haber
+  // quedado atrás.
+  if (cfg.url && cfg.rolDispositivo !== 'sucursal') subirSyncCompleto_();
   } catch (err) {
     console.error('[NovaPOS] Error al cerrar caja:', err);
     toast('No se pudo cerrar la caja: ' + err.message + ' — la caja SIGUE ABIERTA, vuelve a intentar', 'err');
-  }
-}
-
-// Corte pendiente de imprimir mientras el cajero sincroniza en
-// modal-sync-cierre — se guarda aparte (no como argumento en el onclick del
-// botón) porque un objeto completo no cabe limpio en un atributo HTML.
-let corteCierrePendiente = null;
-
-function abrirModalSyncCierre(corte) {
-  corteCierrePendiente = corte;
-  // Sin Google Sheets configurado, o en un dispositivo de rol "Sucursal"
-  // (que bloqueadoEnSucursal() no deja hacer sync_all — ver guardarRolDispositivo()),
-  // no hay nada que sincronizar aquí: se imprime directo, como siempre.
-  if (!cfg.url || cfg.rolDispositivo === 'sucursal') { imprimirCorte(corte); if (cfg.corteEmail && cfg.url) enviarCorteCorreo(corte); return; }
-  const btn = document.getElementById('cierre-sync-btn');
-  btn.disabled = false;
-  btn.textContent = '⬆ Sincronizar ahora';
-  // confirmarCierreCaja() llega aquí en el mismo toque que cerró el teclado
-  // táctil (efectivo contado / contadores de impresora) — instalarAntiDobleToque()
-  // ya le hizo blur() al campo, pero el teclado del sistema todavía tarda
-  // unos ~300ms en su animación de cierre. Si "Sincronizar ahora" aparece de
-  // inmediato, ese primer toque lo sigue consumiendo el cierre del teclado en
-  // vez de llegarle al botón, y hay que tocarlo varias veces. Se espera un
-  // instante a que el teclado termine de cerrarse antes de mostrar el modal.
-  setTimeout(() => openModal('modal-sync-cierre'), 300);
-}
-
-// Un solo toque: el botón se bloquea de inmediato para que no se pueda
-// volver a tocar mientras sincroniza (ver disabled más abajo). Solo si
-// subirSyncCompleto_() termina bien se cierra la ventana sola e imprime —
-// si falla, se desbloquea para reintentar, la ventana NO se puede cerrar
-// de otra forma (no tiene botón de cerrar, ver modal-sync-cierre).
-async function sincronizarYCerrarModalCierre() {
-  const btn = document.getElementById('cierre-sync-btn');
-  btn.disabled = true;
-  btn.textContent = 'Sincronizando…';
-  // Se abre la ventana del ticket YA, en blanco, todavía dentro de este
-  // mismo clic — y se rellena hasta que la sincronización termine bien (ver
-  // el comentario de winExistente en imprimirCorte()). Si falla, se cierra
-  // sin haber mostrado nada.
-  const winTicket = window.open('', '_blank', 'width=320,height=600,scrollbars=yes');
-  const { ok, error } = await subirSyncCompleto_();
-  if (ok) {
-    closeModal('modal-sync-cierre');
-    const corte = corteCierrePendiente;
-    corteCierrePendiente = null;
-    imprimirCorte(corte, winTicket);
-    if (cfg.corteEmail && cfg.url) enviarCorteCorreo(corte);
-  } else {
-    if (winTicket) winTicket.close();
-    btn.disabled = false;
-    btn.textContent = '⬆ Sincronizar ahora';
-    toast('Error al sincronizar' + (error ? ': ' + error : '') + ' — vuelve a intentar', 'err');
   }
 }
 
