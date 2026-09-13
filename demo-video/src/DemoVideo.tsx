@@ -10,13 +10,13 @@ const T = 15; // duración del fundo entre escenas, en frames (0.5s a 30fps)
 export const DemoVideo: React.FC = () => {
   return (
     <TransitionSeries>
-      <TransitionSeries.Sequence durationInFrames={105} name="Intro">
+      <TransitionSeries.Sequence durationInFrames={135} name="Intro">
         <Intro />
         <Narration id="intro" />
       </TransitionSeries.Sequence>
 
       <TransitionSeries.Transition presentation={fade()} timing={linearTiming({ durationInFrames: T })} />
-      <TransitionSeries.Sequence durationInFrames={195} name="Ventas">
+      <TransitionSeries.Sequence durationInFrames={260} name="Ventas">
         <Scene
           eyebrow="Ventas"
           title="Vende y cobra en segundos"
@@ -27,7 +27,7 @@ export const DemoVideo: React.FC = () => {
       </TransitionSeries.Sequence>
 
       <TransitionSeries.Transition presentation={fade()} timing={linearTiming({ durationInFrames: T })} />
-      <TransitionSeries.Sequence durationInFrames={165} name="Cobrar">
+      <TransitionSeries.Sequence durationInFrames={225} name="Cobrar">
         <Scene
           eyebrow="Cobro"
           title="Cinco formas de cobrar"
@@ -38,7 +38,7 @@ export const DemoVideo: React.FC = () => {
       </TransitionSeries.Sequence>
 
       <TransitionSeries.Transition presentation={fade()} timing={linearTiming({ durationInFrames: T })} />
-      <TransitionSeries.Sequence durationInFrames={165} name="Caja">
+      <TransitionSeries.Sequence durationInFrames={230} name="Caja">
         <Scene
           eyebrow="Caja"
           title="Abre y cierra turno sin sorpresas"
@@ -49,7 +49,7 @@ export const DemoVideo: React.FC = () => {
       </TransitionSeries.Sequence>
 
       <TransitionSeries.Transition presentation={fade()} timing={linearTiming({ durationInFrames: T })} />
-      <TransitionSeries.Sequence durationInFrames={210} name="Recargas">
+      <TransitionSeries.Sequence durationInFrames={245} name="Recargas">
         <Scene
           eyebrow="Nuevo · Recargas telefónicas"
           title="Recargas con saldo y comisión separados"
@@ -60,7 +60,7 @@ export const DemoVideo: React.FC = () => {
       </TransitionSeries.Sequence>
 
       <TransitionSeries.Transition presentation={fade()} timing={linearTiming({ durationInFrames: T })} />
-      <TransitionSeries.Sequence durationInFrames={165} name="Inventario">
+      <TransitionSeries.Sequence durationInFrames={290} name="Inventario">
         <Scene
           eyebrow="Inventario"
           title="Tu catálogo, siempre bajo control"
@@ -71,7 +71,7 @@ export const DemoVideo: React.FC = () => {
       </TransitionSeries.Sequence>
 
       <TransitionSeries.Transition presentation={fade()} timing={linearTiming({ durationInFrames: T })} />
-      <TransitionSeries.Sequence durationInFrames={165} name="Reportes">
+      <TransitionSeries.Sequence durationInFrames={260} name="Reportes">
         <Scene
           eyebrow="Reportes"
           title="Ventas, costo y ganancia al momento"
@@ -82,7 +82,7 @@ export const DemoVideo: React.FC = () => {
       </TransitionSeries.Sequence>
 
       <TransitionSeries.Transition presentation={fade()} timing={linearTiming({ durationInFrames: T })} />
-      <TransitionSeries.Sequence durationInFrames={150} name="Config">
+      <TransitionSeries.Sequence durationInFrames={290} name="Config">
         <Scene
           eyebrow="Configuración"
           title="Se adapta a tu negocio"
@@ -93,7 +93,7 @@ export const DemoVideo: React.FC = () => {
       </TransitionSeries.Sequence>
 
       <TransitionSeries.Transition presentation={fade()} timing={linearTiming({ durationInFrames: T })} />
-      <TransitionSeries.Sequence durationInFrames={120} name="Outro">
+      <TransitionSeries.Sequence durationInFrames={170} name="Outro">
         <Outro />
         <Narration id="outro" />
       </TransitionSeries.Sequence>
@@ -103,5 +103,7 @@ export const DemoVideo: React.FC = () => {
 
 // Suma de las duraciones de arriba menos el traslape de cada fundo (8
 // transiciones × T frames) — usado por Root.tsx para registrar la
-// composición con el largo total exacto.
-export const TOTAL_DURATION_IN_FRAMES = 105 + 195 + 165 + 165 + 210 + 165 + 165 + 150 + 120 - 8 * T;
+// composición con el largo total exacto. Las duraciones se ajustaron para
+// que cada escena dure al menos lo que su narración en voz (ver
+// voiceover/guion.md).
+export const TOTAL_DURATION_IN_FRAMES = 135 + 260 + 225 + 230 + 245 + 290 + 260 + 290 + 170 - 8 * T;
