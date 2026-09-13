@@ -3906,7 +3906,18 @@ async function sheetsPost(body) {
       method:'POST', body:JSON.stringify({ ...body, secret: cfg.syncSecret||'' }),
       headers:{'Content-Type':'text/plain'}
     });
-    return await r.json();
+    const texto = await r.text();
+    try {
+      return JSON.parse(texto);
+    } catch {
+      // El Apps Script respondió (sin lanzar AbortError/timeout) pero con algo
+      // que no es JSON — típicamente una página HTML de Google: el despliegue
+      // necesita volver a autorizarse, apunta a una versión vieja, o la cuenta
+      // no tiene acceso. El SyntaxError crudo del navegador ("Unexpected token
+      // '<', "<!DOCTYPE "... is not valid JSON") no le dice nada al cajero, así
+      // que se traduce a algo accionable en vez de repetirlo tal cual.
+      return { ok:false, error:'El Apps Script no respondió con datos válidos — revisa que el despliegue de Google Sheets siga activo y autorizado' };
+    }
   } catch (e) { return { ok:false, error: e.message }; }
 }
 
