@@ -6891,7 +6891,14 @@ function abrirModalSyncCierre(corte) {
   const btn = document.getElementById('cierre-sync-btn');
   btn.disabled = false;
   btn.textContent = '⬆ Sincronizar ahora';
-  openModal('modal-sync-cierre');
+  // confirmarCierreCaja() llega aquí en el mismo toque que cerró el teclado
+  // táctil (efectivo contado / contadores de impresora) — instalarAntiDobleToque()
+  // ya le hizo blur() al campo, pero el teclado del sistema todavía tarda
+  // unos ~300ms en su animación de cierre. Si "Sincronizar ahora" aparece de
+  // inmediato, ese primer toque lo sigue consumiendo el cierre del teclado en
+  // vez de llegarle al botón, y hay que tocarlo varias veces. Se espera un
+  // instante a que el teclado termine de cerrarse antes de mostrar el modal.
+  setTimeout(() => openModal('modal-sync-cierre'), 300);
 }
 
 // Un solo toque: el botón se bloquea de inmediato para que no se pueda
