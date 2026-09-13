@@ -545,7 +545,18 @@ function mpProxy_(method, path, payload, onOk) {
   const code = resp.getResponseCode();
   let data = {};
   try { data = JSON.parse(resp.getContentText() || '{}'); } catch(e) {}
-  if (code >= 400) return json({ ok:false, error: data.message || data.error || ('Mercado Pago respondió ' + code) });
+  // El error real de la API de "orders" casi nunca viene en data.message/
+  // data.error (eso es más de sus APIs viejas) — viene en data.cause, un
+  // arreglo de {code, description}. Sin esto, cualquier 400 se le mostraba
+  // al cajero como "Mercado Pago respondió 400" sin decir por qué (terminal
+  // no encontrada, fuera de línea, monto inválido, etc.), y tampoco había
+  // forma de diagnosticarlo desde NovaPOS sin entrar a los logs de Apps
+  // Script a mano.
+  if (code >= 400) {
+    const causas = Array.isArray(data.cause) ? data.cause.map(function(c){ return c && (c.description || c.code); }).filter(Boolean).join('; ') : '';
+    const detalle = causas || data.message || data.error || 'sin detalle en la respuesta';
+    return json({ ok:false, error: 'Mercado Pago respondió ' + code + ': ' + detalle });
+  }
   return onOk ? onOk(data) : json({ ok:true, data: data });
 }
 
