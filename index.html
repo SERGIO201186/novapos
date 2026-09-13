@@ -1717,7 +1717,7 @@ body.modo-sucursal .admin-only{display:none!important}
      el ticket — así el ticket y la próxima apertura siempre parten de
      información ya subida a la nube. Ver abrirModalSyncCierre() /
      sincronizarYCerrarModalCierre(), llamadas desde confirmarCierreCaja(). -->
-<div class="modal-bg" id="modal-sync-cierre">
+<div class="modal-bg" id="modal-sync-cierre" data-lock="1">
   <div class="modal" style="max-width:360px;text-align:center">
     <div style="font-size:32px;margin-bottom:8px">☁️</div>
     <h3 style="margin-bottom:8px">Sincroniza antes de imprimir</h3>
@@ -3722,7 +3722,15 @@ async function iniciarApp() {
   document.getElementById('cfg-giro').value   = cfg.giro||'generico';
   document.getElementById('cfg-iva').value    = cfg.iva ?? 16;
   document.getElementById('cfg-ticket-ancho').value = cfg.ticketAncho || '80';
-  document.querySelectorAll('.modal-bg').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m) m.classList.remove('open'); }));
+  // data-lock="1" marca los modales "obligatorios" (modal-sync-cierre,
+  // modal-terminal-mp cuando se abre desde abrirCaja()) — antes este
+  // listener los cerraba igual que cualquier otro con solo tocar el fondo
+  // oscuro, así que un cajero que tocaba fuera del cuadro por accidente
+  // (muy fácil en una pantalla táctil) se saltaba la sincronización o la
+  // vinculación de la terminal sin darse cuenta, dejando el corte sin subir
+  // o el ticket sin imprimir. Ver abrirModalTerminalMp() y el div de
+  // modal-sync-cierre.
+  document.querySelectorAll('.modal-bg').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m && m.dataset.lock!=='1') m.classList.remove('open'); }));
   instalarAntiDobleToque();
   focusBarcode();
 }
@@ -4389,6 +4397,11 @@ function abrirModalTerminalMp(obligatorio) {
     ? 'Busca tu terminal, da clic en "Usar esta" y luego en "Guardar y continuar". Mientras no la guardes, esta ventana no se puede cerrar — así evitas quedarte sin poder cobrar con tarjeta a media venta.'
     : 'Busca tu terminal, da clic en "Usar esta" y luego en "Guardar" para actualizar el Device ID de este dispositivo.';
   document.getElementById('modal-terminal-mp-cerrar').style.display = obligatorio ? 'none' : '';
+  // Ver el comentario de data-lock en el listener de .modal-bg (init()) —
+  // sin esto, tocar el fondo oscuro cerraba esta ventana "obligatoria"
+  // igual que cualquier otro modal, dejando el dispositivo sin Device ID
+  // vinculado.
+  document.getElementById('modal-terminal-mp').dataset.lock = obligatorio ? '1' : '0';
   openModal('modal-terminal-mp');
 }
 
