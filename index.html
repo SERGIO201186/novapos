@@ -849,19 +849,19 @@ body.modo-sucursal .admin-only{display:none!important}
       <div id="caja-closed">
         <div class="field" id="caja-vendedor-field" style="display:none">
           <label>NIP del vendedor en turno</label>
-          <input id="caja-vendedor-pin" type="password" inputmode="numeric" maxlength="6" placeholder="••••" autocomplete="off">
+          <input id="caja-vendedor-pin" type="password" inputmode="numeric" maxlength="6" placeholder="••••" autocomplete="off" enterkeyhint="next" onkeydown="enterFoco(event,'caja-fondo')">
         </div>
         <div class="field">
           <label>Fondo inicial ($)</label>
-          <input type="number" id="caja-fondo" value="300" min="0">
+          <input type="number" id="caja-fondo" value="300" min="0" enterkeyhint="next" onkeydown="enterCajaFondo(event)">
         </div>
         <div id="caja-contadores-field" style="display:none">
           <p style="font-size:12px;color:var(--txt2);margin-bottom:8px">🖨️ Contador actual de la impresora (antes de vender nada este turno) — una vez que abras la caja, ya no se puede editar.</p>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
-            <div class="field" style="margin:0"><label>Copias B/N</label><input type="number" id="caja-cont-bn" min="0" placeholder="0"></div>
-            <div class="field" style="margin:0"><label>Copias color</label><input type="number" id="caja-cont-color" min="0" placeholder="0"></div>
-            <div class="field" style="margin:0"><label>Impresiones B/N</label><input type="number" id="caja-cont-imp-bn" min="0" placeholder="0"></div>
-            <div class="field" style="margin:0"><label>Impresiones color</label><input type="number" id="caja-cont-imp-color" min="0" placeholder="0"></div>
+            <div class="field" style="margin:0"><label>Copias B/N</label><input type="number" id="caja-cont-bn" min="0" placeholder="0" enterkeyhint="next" onkeydown="enterFoco(event,'caja-cont-color')"></div>
+            <div class="field" style="margin:0"><label>Copias color</label><input type="number" id="caja-cont-color" min="0" placeholder="0" enterkeyhint="next" onkeydown="enterFoco(event,'caja-cont-imp-bn')"></div>
+            <div class="field" style="margin:0"><label>Impresiones B/N</label><input type="number" id="caja-cont-imp-bn" min="0" placeholder="0" enterkeyhint="next" onkeydown="enterFoco(event,'caja-cont-imp-color')"></div>
+            <div class="field" style="margin:0"><label>Impresiones color</label><input type="number" id="caja-cont-imp-color" min="0" placeholder="0" enterkeyhint="done" onkeydown="if(event.key==='Enter')abrirCaja()"></div>
           </div>
         </div>
         <div style="display:flex;gap:8px">
@@ -1699,7 +1699,7 @@ body.modo-sucursal .admin-only{display:none!important}
     </div>
     <div class="field">
       <label>Device ID de tu terminal</label>
-      <input id="tmp-mp-device-id" placeholder="Ej. GERTEC_MP35P__8701016695109435">
+      <input id="tmp-mp-device-id" placeholder="Ej. GERTEC_MP35P__8701016695109435" enterkeyhint="done" onkeydown="if(event.key==='Enter')guardarTerminalMpApertura()">
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn btn-ghost" onclick="mpBuscarDispositivos('tmp','tmp-mp-device-id')">🔍 Buscar terminal</button>
@@ -1735,15 +1735,15 @@ body.modo-sucursal .admin-only{display:none!important}
     </div>
     <div class="field">
       <label>Efectivo contado</label>
-      <input type="number" id="cierre-contado" min="0" step="0.01" placeholder="0.00" oninput="calcDiferenciaCierre()" onkeydown="if(event.key==='Enter')confirmarCierreCaja()">
+      <input type="number" id="cierre-contado" min="0" step="0.01" placeholder="0.00" enterkeyhint="next" oninput="calcDiferenciaCierre()" onkeydown="enterCierreContado(event)">
     </div>
     <div id="cierre-contadores-field" style="display:none">
       <p style="font-size:12px;color:var(--txt2);margin:10px 0 8px">🖨️ Contador actual de la impresora (al terminar el turno) — una vez que cierres la caja, ya no se puede editar.</p>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
-        <div class="field" style="margin:0"><label>Copias B/N</label><input type="number" id="cierre-cont-bn" min="0" placeholder="0"></div>
-        <div class="field" style="margin:0"><label>Copias color</label><input type="number" id="cierre-cont-color" min="0" placeholder="0"></div>
-        <div class="field" style="margin:0"><label>Impresiones B/N</label><input type="number" id="cierre-cont-imp-bn" min="0" placeholder="0"></div>
-        <div class="field" style="margin:0"><label>Impresiones color</label><input type="number" id="cierre-cont-imp-color" min="0" placeholder="0"></div>
+        <div class="field" style="margin:0"><label>Copias B/N</label><input type="number" id="cierre-cont-bn" min="0" placeholder="0" enterkeyhint="next" onkeydown="enterFoco(event,'cierre-cont-color')"></div>
+        <div class="field" style="margin:0"><label>Copias color</label><input type="number" id="cierre-cont-color" min="0" placeholder="0" enterkeyhint="next" onkeydown="enterFoco(event,'cierre-cont-imp-bn')"></div>
+        <div class="field" style="margin:0"><label>Impresiones B/N</label><input type="number" id="cierre-cont-imp-bn" min="0" placeholder="0" enterkeyhint="next" onkeydown="enterFoco(event,'cierre-cont-imp-color')"></div>
+        <div class="field" style="margin:0"><label>Impresiones color</label><input type="number" id="cierre-cont-imp-color" min="0" placeholder="0" enterkeyhint="done" onkeydown="if(event.key==='Enter')confirmarCierreCaja()"></div>
       </div>
     </div>
     <div class="cambio-box" id="cierre-diferencia-box">
@@ -1754,9 +1754,9 @@ body.modo-sucursal .admin-only{display:none!important}
     <div id="cierre-recargas-mp-field" style="display:none;margin-top:14px">
       <p style="font-size:12px;color:var(--txt2);margin-bottom:8px">📲 Recargas hechas en la terminal MP este turno — captura cada ticket antes de cerrar (folio o teléfono, monto, comisión).</p>
       <div style="display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:6px;margin-bottom:8px">
-        <input id="cierre-recmp-ident" placeholder="Folio o teléfono">
-        <input type="number" id="cierre-recmp-monto" min="0" step="0.01" placeholder="Monto">
-        <input type="number" id="cierre-recmp-comision" min="0" step="0.01" placeholder="Comisión">
+        <input id="cierre-recmp-ident" placeholder="Folio o teléfono" enterkeyhint="next" onkeydown="enterFoco(event,'cierre-recmp-monto')">
+        <input type="number" id="cierre-recmp-monto" min="0" step="0.01" placeholder="Monto" enterkeyhint="next" onkeydown="enterFoco(event,'cierre-recmp-comision')">
+        <input type="number" id="cierre-recmp-comision" min="0" step="0.01" placeholder="Comisión" enterkeyhint="done" onkeydown="if(event.key==='Enter')agregarRecargaMPCierre()">
       </div>
       <button class="btn btn-ghost btn-sm btn-full" onclick="agregarRecargaMPCierre()" style="margin-bottom:8px">+ Agregar recarga</button>
       <div id="cierre-recmp-list"></div>
@@ -6822,6 +6822,40 @@ function calcDiferenciaCierre() {
   document.getElementById('cierre-diferencia-num').textContent =
     mxn(Math.abs(dif)) + (dif > 0 ? ' (falta)' : dif < 0 ? ' (sobra)' : '');
   box.className = 'cambio-box' + (dif > 0 ? ' neg' : '');
+}
+
+// En una tablet, el teclado táctil tapa el botón "Cerrar caja" (o queda
+// pegado al borde de la pantalla) y encima el cierre del teclado se come el
+// primer toque (ver instalarAntiDobleToque()) — entre los dos, tocar el
+// botón después de capturar el último dato es más difícil de lo que
+// debería. Con esto, "Enter"/el botón de confirmar del teclado en pantalla
+// (mostrado como flecha "siguiente" o palomita "listo" gracias a
+// enterkeyhint) avanza de un campo al siguiente y, en el último, dispara la
+// misma acción del botón — sin depender de alcanzarlo con el dedo. Mismo
+// patrón en los 4 contadores de impresora y en las 3 recargas MP de este
+// modal, y en abrirCaja().
+function enterFoco(e, idSiguiente) {
+  if (e.key !== 'Enter') return;
+  const el = document.getElementById(idSiguiente);
+  if (el) el.focus();
+}
+// "Efectivo contado" es el primer campo del modal: si además hay que
+// capturar contadores de impresora (cfg.controlCopias), Enter aquí avanza a
+// esos en vez de intentar cerrar la caja de una vez (fallaría la validación
+// y solo confundiría con un toast).
+function enterCierreContado(e) {
+  if (e.key !== 'Enter') return;
+  const contadores = document.getElementById('cierre-contadores-field');
+  if (contadores && contadores.style.display !== 'none') enterFoco(e, 'cierre-cont-bn');
+  else confirmarCierreCaja();
+}
+// Mismo caso que enterCierreContado() pero para la apertura: "Fondo inicial"
+// es el campo antes de los contadores de impresora (si están activos).
+function enterCajaFondo(e) {
+  if (e.key !== 'Enter') return;
+  const contadores = document.getElementById('caja-contadores-field');
+  if (contadores && contadores.style.display !== 'none') enterFoco(e, 'caja-cont-bn');
+  else abrirCaja();
 }
 
 async function confirmarCierreCaja() {
