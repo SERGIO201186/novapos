@@ -6,7 +6,16 @@ import {
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
-import { COLORS, FONT_STACK } from "./Scene";
+import { COLORS, FONT_STACK, rgba } from "./Scene";
+
+const CONFETTI = [
+  { color: "#FCD34D", top: "18%", left: "12%", size: 26, speed: 55, phase: 0 },
+  { color: "#60A5FA", top: "70%", left: "18%", size: 18, speed: 70, phase: 1 },
+  { color: "#F472B6", top: "24%", left: "84%", size: 22, speed: 60, phase: 2 },
+  { color: "#34D399", top: "76%", left: "80%", size: 30, speed: 80, phase: 0.5 },
+  { color: "#FB923C", top: "50%", left: "6%", size: 16, speed: 65, phase: 1.5 },
+  { color: "#A78BFA", top: "46%", left: "92%", size: 20, speed: 75, phase: 2.5 },
+];
 
 export const Intro: React.FC = () => {
   const frame = useCurrentFrame();
@@ -17,11 +26,16 @@ export const Intro: React.FC = () => {
     extrapolateRight: "clamp",
     easing: Easing.bezier(0.16, 1, 0.3, 1),
   });
-  const logoScale = interpolate(frame, [0, 0.6 * fps], [0.85, 1], {
+  const logoScale = interpolate(frame, [0, 0.6 * fps], [0.6, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
-    easing: Easing.spring({ damping: 200 }),
+    easing: Easing.elastic(1),
     output: "perceptual-scale",
+  });
+  const logoRotate = interpolate(frame, [0, 0.6 * fps], [-14, 0], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: Easing.elastic(1),
   });
   const titleIn = interpolate(frame, [0.35 * fps, 0.9 * fps], [0, 1], {
     extrapolateLeft: "clamp",
@@ -43,13 +57,44 @@ export const Intro: React.FC = () => {
         fontFamily: FONT_STACK,
         justifyContent: "center",
         alignItems: "center",
+        overflow: "hidden",
       }}
     >
+      {CONFETTI.map((c, i) => {
+        const drift = Math.sin(frame / c.speed + c.phase) * 22;
+        const spin = (frame / c.speed) * 40 + c.phase * 60;
+        const pop = interpolate(frame, [i * 3, i * 3 + 20], [0, 1], {
+          extrapolateLeft: "clamp",
+          extrapolateRight: "clamp",
+          easing: Easing.out(Easing.back(1.6)),
+        });
+        return (
+          <div
+            key={c.color + i}
+            style={{
+              position: "absolute",
+              top: c.top,
+              left: c.left,
+              width: c.size,
+              height: c.size,
+              borderRadius: 6,
+              background: c.color,
+              opacity: pop * 0.85,
+              scale: pop,
+              rotate: `${spin}deg`,
+              translate: `${drift}px ${drift * 0.6}px`,
+              boxShadow: `0 8px 20px ${rgba(c.color, 0.35)}`,
+            }}
+          />
+        );
+      })}
+
       <Interactive.Div
         name="Logo"
         style={{
           opacity: logoIn,
           scale: logoScale,
+          rotate: `${logoRotate}deg`,
           width: 140,
           height: 140,
           borderRadius: 32,

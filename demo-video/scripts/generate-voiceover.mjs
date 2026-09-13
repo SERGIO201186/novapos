@@ -5,6 +5,7 @@
 // Uso:
 //   ELEVENLABS_API_KEY=xxxx npm run voiceover
 //   ELEVENLABS_API_KEY=xxxx ELEVENLABS_VOICE_ID=yyyy npm run voiceover
+//   ELEVENLABS_API_KEY=xxxx npm run voiceover -- pricing outro   (solo esas escenas)
 
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
@@ -30,7 +31,18 @@ const scriptPath = path.join(ROOT, "voiceover", "voiceover.json");
 const outDir = path.join(ROOT, "public", "audio");
 
 async function main() {
-  const lines = JSON.parse(await readFile(scriptPath, "utf8"));
+  const allLines = JSON.parse(await readFile(scriptPath, "utf8"));
+  const wanted = process.argv.slice(2);
+  const lines = wanted.length
+    ? allLines.filter((l) => wanted.includes(l.id))
+    : allLines;
+
+  if (wanted.length && lines.length !== wanted.length) {
+    const found = new Set(lines.map((l) => l.id));
+    const missing = wanted.filter((id) => !found.has(id));
+    throw new Error(`ids no encontrados en voiceover.json: ${missing.join(", ")}`);
+  }
+
   await mkdir(outDir, { recursive: true });
 
   for (const { id, text } of lines) {
