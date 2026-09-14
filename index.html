@@ -4018,9 +4018,10 @@ async function subirSyncCompleto_() {
         recargas:    db.recargas || [],
         // El NIP de cada vendedor no va en la hoja — vive en Propiedades del
         // script (ver sheetsSetPin) y se sube aparte, no con este botón. El
-        // código de empleado SÍ va en la hoja (ver SHEET_HEADERS.vendedores) —
-        // dejarlo fuera aquí borraba el código de todos al sincronizar.
-        vendedores:  (db.vendedores || []).map(({id, nombre, codigoEmpleado}) => ({id, nombre, codigoEmpleado})),
+        // código de empleado y "activo" (ver darDeBajaVendedor()) SÍ van en
+        // la hoja (ver SHEET_HEADERS.vendedores) — dejarlos fuera aquí los
+        // borraba de todos al sincronizar.
+        vendedores:  (db.vendedores || []).map(v => ({id: v.id, nombre: v.nombre, codigoEmpleado: v.codigoEmpleado, activo: vendedorActivo(v)})),
         entradas_inventario: db.entradasInventario || [],
         turnos: (db.turnos || []).map(t => ({ ...t, vendedorIds: JSON.stringify(vendedorIdsACodigos(t.vendedorIds||[])) })),
         clientes: db.clientes || [],
@@ -4620,24 +4621,42 @@ function cancelarOwnerPin() {
 //  pegados a cada venta, al corte que genera el cierre, y al ticket
 //  impreso, para saber quién atendió qué turno.
 // ══════════════════════════════════════════════════════════
+
+// v.activo se guarda en la hoja "vendedores" (ver SHEET_HEADERS en
+// nova_codigo.gs), así que al bajar de Sheets normalizarFilasSheet()
+// convierte TODO a texto — un true/false real localmente se vuelve el
+// string "true"/"false" después de un ciclo de sincronización (mismo caso
+// que cfg.controlCopias con "config"). Cualquier vendedor viejo, dado de
+// alta antes de que existiera esta columna, no trae nada ahí — se trata
+// como activo (solo "false"/false cuentan como dado de baja).
+function vendedorActivo(v) { return !(v.activo === false || v.activo === 'false'); }
+
 function renderVendedores() {
   const list = document.getElementById('cfg-vendedores-list');
   if (!list) return;
   if (!db.vendedores.length) {
     list.innerHTML = `<p style="font-size:12px;color:var(--txt2)">Sin vendedores dados de alta todavía.</p>`;
   } else {
-    list.innerHTML = db.vendedores.map(v => `
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--border);gap:8px;flex-wrap:wrap">
-        <span style="font-size:13px">${esc(v.nombre)}
+    list.innerHTML = db.vendedores.map(v => {
+      const activo = vendedorActivo(v);
+      return `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--border);gap:8px;flex-wrap:wrap;${activo?'':'opacity:.6'}">
+        <span style="font-size:13px">${activo ? esc(v.nombre) : `<s>${esc(v.nombre)}</s> <span style="color:var(--rojo,#dc2626);font-weight:600">❌ DADO DE BAJA</span>`}
           ${v.pin ? '<span style="color:var(--txt2)">🔑 NIP</span>' : '<span style="color:var(--amber,#d97706)">⚠️ Sin NIP — no podrá abrir turno</span>'}
           ${v.codigoEmpleado ? `<span style="color:var(--txt2)">· 🏷️ ${esc(v.codigoEmpleado)}</span>` : '<span style="color:var(--amber,#d97706)">⚠️ Sin código de empleado</span>'}
         </span>
         <span style="display:flex;gap:6px;flex-shrink:0">
+          ${activo ? `
           <button class="btn btn-ghost btn-sm" onclick="cambiarNipVendedor('${v.id}')">🔑 NIP</button>
           <button class="btn btn-ghost btn-sm" onclick="cambiarCodigoVendedor('${v.id}')">🏷️ Código</button>
-          <button class="btn btn-danger btn-sm admin-only" onclick="eliminarVendedor('${v.id}')">🗑</button>
+          <button class="btn btn-ghost btn-sm admin-only" onclick="darDeBajaVendedor('${v.id}')" title="Ya no podrá abrir turno, pero su historial de ventas y cortes se conserva">🚫 Dar de baja</button>
+          ` : `
+          <button class="btn btn-ghost btn-sm admin-only" onclick="reactivarVendedor('${v.id}')">↩ Reactivar</button>
+          `}
+          <button class="btn btn-danger btn-sm admin-only" onclick="eliminarVendedor('${v.id}')" title="Borra por completo el registro del vendedor (no las ventas/cortes ya hechos)">🗑</button>
         </span>
-      </div>`).join('');
+      </div>`;
+    }).join('');
   }
   actualizarCampoVendedorTurno();
 }
@@ -4654,21 +4673,50 @@ function agregarVendedor() {
   if (!codigoEmpleado) { toast('Escribe el código de empleado (ej. EMP-001) — lo necesita el resumen de turno','warn'); return; }
   if (db.vendedores.some(x => x.pin === pin)) { toast('Ese NIP ya lo usa otro vendedor — cada quien necesita uno distinto','err'); return; }
   if (db.vendedores.some(x => x.codigoEmpleado === codigoEmpleado)) { toast('Ese código de empleado ya está en uso','err'); return; }
-  const v = { id: uid(), nombre, pin, codigoEmpleado };
+  const v = { id: uid(), nombre, pin, codigoEmpleado, activo: true };
   db.vendedores.push(v);
   inputNombre.value = ''; inputNip.value = ''; inputCodigo.value = '';
   save();
-  // El nombre/id/código sí van en la hoja "vendedores"; el NIP va aparte, a
-  // Propiedades del script (ver sheetsSetPin), nunca en la hoja.
-  saveAndSyncFast('vendedores', { id: v.id, nombre: v.nombre, codigoEmpleado: v.codigoEmpleado });
+  // El nombre/id/código/activo sí van en la hoja "vendedores"; el NIP va
+  // aparte, a Propiedades del script (ver sheetsSetPin), nunca en la hoja.
+  saveAndSyncFast('vendedores', { id: v.id, nombre: v.nombre, codigoEmpleado: v.codigoEmpleado, activo: v.activo });
   if (cfg.url) sheetsSetPin('vendedor', { vendedorId: v.id, pin: v.pin });
   renderVendedores();
   toast(`Vendedor "${nombre}" agregado ✓`);
 }
 
+// Dar de baja: a diferencia de eliminarVendedor(), NO borra el registro —
+// solo lo marca inactivo. Sigue apareciendo en la lista (tachado, como
+// "DADO DE BAJA"), sus ventas/cortes/turnos anteriores no cambian en nada
+// (ya quedaron guardados con su nombre tal cual), y ya no puede abrir un
+// turno nuevo con su NIP (ver el candado en abrirCaja()) — a diferencia de
+// borrarlo, sí se puede reactivar después sin volver a darlo de alta.
+function darDeBajaVendedor(id) {
+  if (bloqueadoEnSucursal()) return;
+  const v = db.vendedores.find(x => x.id === id);
+  if (!v) return;
+  if (!confirm(`¿Dar de baja a "${v.nombre}"? Ya no podrá abrir turno con su NIP, pero su historial de ventas y cortes se conserva tal cual, y puedes reactivarlo cuando quieras.`)) return;
+  v.activo = false;
+  save();
+  saveAndSyncFast('vendedores', { id: v.id, nombre: v.nombre, codigoEmpleado: v.codigoEmpleado, activo: false });
+  renderVendedores();
+  toast(`"${v.nombre}" dado de baja`, 'warn');
+}
+
+function reactivarVendedor(id) {
+  if (bloqueadoEnSucursal()) return;
+  const v = db.vendedores.find(x => x.id === id);
+  if (!v) return;
+  v.activo = true;
+  save();
+  saveAndSyncFast('vendedores', { id: v.id, nombre: v.nombre, codigoEmpleado: v.codigoEmpleado, activo: true });
+  renderVendedores();
+  toast(`"${v.nombre}" reactivado ✓`);
+}
+
 function eliminarVendedor(id) {
   if (bloqueadoEnSucursal()) return;
-  if (!confirm('¿Eliminar este vendedor? Las ventas y cortes que ya se hicieron con su nombre no cambian.')) return;
+  if (!confirm('¿ELIMINAR POR COMPLETO a este vendedor? Las ventas y cortes que ya se hicieron con su nombre no cambian, pero su registro desaparece de esta lista para siempre — si solo quieres que ya no pueda abrir turno pero conservarlo en la lista, usa "Dar de baja" en vez de esto.')) return;
   db.vendedores = db.vendedores.filter(v => v.id !== id);
   save();
   saveAndDeleteFast('vendedores', id);
@@ -6594,6 +6642,10 @@ async function abrirCaja() {
     if (!pin) { toast('Ingresa tu NIP para abrir turno','warn'); return; }
     const v = db.vendedores.find(x => x.pin && x.pin === pin);
     if (!v) { toast('NIP no reconocido','err'); pinInput.value=''; pinInput.focus(); return; }
+    // Dado de baja (ver darDeBajaVendedor()) — su NIP sigue guardado (para no
+    // perder el vínculo con su historial), pero ya no debe poder abrir un
+    // turno nuevo.
+    if (!vendedorActivo(v)) { toast(`${v.nombre} está dado de baja — no puede abrir turno`,'err'); pinInput.value=''; pinInput.focus(); return; }
     vendedorId = v.id; vendedorNombre = v.nombre;
     pinInput.value = '';
   }
