@@ -585,7 +585,13 @@ const SHEET_HEADERS = {
   // JSON (mismo patrón que "items" en la hoja "ventas") y Total/Count quedan
   // aparte para poder sumarlos sin tener que parsear el JSON cada vez.
   cortes:      ['id','apertura','cierre','fondo','ingresos','egresos','saldoFinal','vendedor','ventasCount','ventasTotal','efectivo','tarjeta','transferencia','recargasCount','recargasTotal','recargasComisionTotal','folio','codigoEmpleado','efectivoEsperado','efectivoContado','faltante','sucursal','fiadoCount','fiadoTotal','contAperturaBn','contAperturaColor','contAperturaImpBn','contAperturaImpColor','contCierreBn','contCierreColor','contCierreImpBn','contCierreImpColor','copiasImpresionesVendidasTotal','copiasImpresionesVendidasCount','copiasImpresionesVendidasDetalle'],
-  vendedores:  ['id','nombre','codigoEmpleado'],
+  // activo: dar de baja a un vendedor (NovaPOS: darDeBajaVendedor()) marca
+  // esta columna false en vez de borrar la fila — así ya no puede abrir
+  // turno con su NIP, pero su historial de ventas/cortes y su lugar en esta
+  // lista (para reactivarlo después) se conservan. ensureHeaders_() la
+  // agrega sola a hojas que ya existían de antes de este campo, sin tocar
+  // las filas que ya tenían.
+  vendedores:  ['id','nombre','codigoEmpleado','activo'],
   config:      ['key','value'],
   // Clientes para venta a crédito ("fiado") — "saldo" es lo que debe
   // actualmente, "limiteCredito" es informativo (el checkout no lo bloquea,
