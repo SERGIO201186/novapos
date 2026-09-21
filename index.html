@@ -3691,11 +3691,12 @@ async function iniciarApp() {
   // etc. sigan como están en la nube, sin depender de que falte algo más
   // para notarlo. Sin "await", mismo motivo que recuperarCajaDeNube_().
   sincronizarConfigYPines_();
-  // Revisa cada minuto si el inventario cambió en Sheets (editado directo ahí
-  // o subido desde otro dispositivo) y lo refleja aquí solo, sin que alguien
-  // tenga que acordarse de tocar "Descargar de Sheets". Ver
-  // sincronizarInventarioLigero_/iniciarPollInventario_ más abajo.
-  if (cfg.url) iniciarPollInventario_();
+  // Revisa cada minuto si el inventario o los cierres de caja cambiaron en
+  // Sheets (editado directo ahí, o subido desde otro dispositivo) y lo
+  // refleja aquí solo, sin que alguien tenga que acordarse de tocar
+  // "Descargar de Sheets". Ver sincronizarInventarioLigero_/
+  // sincronizarCortesLigero_/iniciarPollSheets_ más abajo.
+  if (cfg.url) iniciarPollSheets_();
   // Ver el comentario de recuperarCajaDeNube_() — si este dispositivo
   // arranca con la caja cerrada, puede ser un turno legítimo (nunca se abrió
   // hoy) o uno que se perdió a medio turno; se pregunta antes de asumir
@@ -4218,22 +4219,26 @@ async function cargarDeSheets(avisar = true, completo = false) {
   }
 }
 
-// Cada cuánto se revisa solo si "productos" cambió en Sheets (ver
-// sincronizarInventarioLigero_ abajo). Ni tan seguido como para gastar datos
-// móviles sin necesidad, ni tan espaciado como para que alguien que edita el
-// inventario directo en la hoja de cálculo tenga que esperar mucho o
-// acordarse de tocar "Descargar de Sheets" para verlo reflejado aquí.
-const INVENTARIO_POLL_MS = 60000;
+// Cada cuánto se revisa si "productos"/"cortes" cambiaron en Sheets (ver
+// sincronizarInventarioLigero_/sincronizarCortesLigero_ abajo). Ni tan
+// seguido como para gastar datos móviles sin necesidad, ni tan espaciado
+// como para que alguien que edita el inventario directo en la hoja de
+// cálculo (o cierra caja desde otro dispositivo) tenga que esperar mucho o
+// acordarse de tocar "Descargar de Sheets" para verlo reflejado aquí — la
+// hoja de cálculo es la que de verdad manda.
+const POLL_SHEETS_MS = 60000;
 
 // Descarga silenciosa de SOLO la hoja "productos" — a diferencia de
 // cargarDeSheets() (que trae ~15 hojas completas y se usa para altas/bajas
 // de todo tipo), esta es chica y se puede pedir seguido sin pesar. No pide
 // confirmación ni muestra toast de éxito (mismo criterio que
 // sincronizarConfigYPines_): es un refresco de fondo, no algo que el usuario
-// disparó a propósito. document.hidden evita gastar datos/batería con la
+// disparó a propósito. Reemplaza el catálogo local completo con lo que haya
+// en Sheets (igual que cargarDeSheets) porque para productos, Sheets es la
+// única fuente de verdad. document.hidden evita gastar datos/batería con la
 // pestaña/app en segundo plano; se compensa con el listener de
-// 'visibilitychange' en iniciarPollInventario_(), que sincroniza de
-// inmediato en cuanto vuelve a primer plano.
+// 'visibilitychange' en iniciarPollSheets_(), que sincroniza de inmediato en
+// cuanto vuelve a primer plano.
 async function sincronizarInventarioLigero_() {
   if (!cfg.url || document.hidden) return;
   const productos = await sheetsGet('productos');
@@ -4245,13 +4250,33 @@ async function sincronizarInventarioLigero_() {
   updateBadge();
 }
 
-// Arranca el chequeo periódico del inventario y lo dispara también cada vez
-// que la app vuelve a primer plano, para no esperar hasta el siguiente tick
-// del interval si alguien la dejó minimizada un rato.
-function iniciarPollInventario_() {
-  setInterval(sincronizarInventarioLigero_, INVENTARIO_POLL_MS);
+// Igual que sincronizarInventarioLigero_ pero para "cortes" (cierres de
+// caja) — a diferencia de productos, aquí SOLO se agrega lo que falte por
+// id, igual que hace cargarDeSheets(): nunca se reemplaza ni se borra un
+// corte que este dispositivo ya tenía, para no repetir la pérdida de
+// cierres que motivó ese mismo criterio ahí (ver el comentario en
+// cargarDeSheets()). Así, un corte cerrado en otro dispositivo (o corregido
+// directo en la hoja) aparece aquí solo, sin arriesgar el historial local.
+async function sincronizarCortesLigero_() {
+  if (!cfg.url || document.hidden) return;
+  const cortes = await sheetsGet('cortes');
+  if (cortes === null) return;
+  const cortesDescargados = normalizarFilasSheet('cortes', cortes);
+  const idsDescargados = new Set(cortesDescargados.map(c => c.id));
+  db.cortes = [...db.cortes.filter(c => !idsDescargados.has(c.id)), ...cortesDescargados];
+  save();
+  renderCaja();
+  renderReportes();
+}
+
+// Arranca el chequeo periódico de Sheets y lo dispara también cada vez que
+// la app vuelve a primer plano, para no esperar hasta el siguiente tick del
+// interval si alguien la dejó minimizada un rato.
+function iniciarPollSheets_() {
+  const tick = () => { sincronizarInventarioLigero_(); sincronizarCortesLigero_(); };
+  setInterval(tick, POLL_SHEETS_MS);
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) sincronizarInventarioLigero_();
+    if (!document.hidden) tick();
   });
 }
 

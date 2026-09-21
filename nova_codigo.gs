@@ -564,7 +564,15 @@ function mpProxy_(method, path, payload, onOk) {
 // (getSheet) como para reponerlos si una hoja ya existe pero se vació por
 // completo a mano (ensureHeaders_, que usa sync_all antes de escribir).
 const SHEET_HEADERS = {
-  productos:   ['id','sku','barcode','nombre','cat','proveedor','precio','costo','stock','stockmin','vence','unidad','desc'],
+  // sumarInventario: columna de "entrada rápida" — se deja vacía siempre.
+  // Quien lleva el inventario en la hoja de cálculo (no en NovaPOS) escribe
+  // ahí cuánto entró de mercancía y onEdit() (ver más abajo) lo SUMA al
+  // "stock" ya existente y limpia la celda — así nunca hay que calcular a
+  // mano "stock actual + lo que llegó" ni arriesgarse a pisar el stock real
+  // con un total mal copiado. NovaPOS (upsert/sync_all) siempre la manda en
+  // blanco al guardar un producto, así que cualquier valor que quedara ahí
+  // sin procesar se limpia solo en la siguiente sincronización desde la app.
+  productos:   ['id','sku','barcode','nombre','cat','proveedor','precio','costo','stock','stockmin','vence','unidad','desc','sumarInventario'],
   ventas:      ['id','folio','fecha','items','subtotal','descuento','total','recibido','cambio','metodo','vendedor','clienteId','sucursal'],
   movimientos: ['id','fecha','tipo','monto','concepto','sucursal'],
   facturas:    ['id','folio','ventaId','fecha','clienteNombre','clienteRFC','clienteEmail','clienteDir','usoCFDI','metodoPago','formaPago','subtotal','iva','total','estatus','cfdiUUID'],
@@ -671,4 +679,75 @@ function ensureHeaders_(sh, name) {
 function json(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+// 🔺 Trigger simple (Apps Script lo reconoce solo por llamarse "onEdit" —
+// no hace falta instalarlo desde Activadores) que se dispara cada vez que
+// alguien edita A MANO la hoja de cálculo, nunca cuando NovaPOS escribe vía
+// la Web App (eso pasa por SpreadsheetApp igual, pero no cuenta como
+// "edición" para Apps Script). Por ahora solo vigila la columna
+// "sumarInventario" de la hoja "productos": es la manera de que quien lleva
+// el inventario directo en Sheets pueda decir "llegaron 20" sin tener que
+// calcular ni escribir el nuevo total a mano — NovaPOS ya lo va a ver
+// reflejado en "stock" en su siguiente sincronización (ver
+// sincronizarInventarioLigero_ en NovaPOS/index.html).
+//
+// Soporta pegar/editar varias filas a la vez (ej. pegar una columna de
+// cantidades para reabastecer todo el catálogo junto), no solo una celda.
+function onEdit(e) {
+  try {
+    if (!e || !e.range) return;
+    const sh = e.range.getSheet();
+    if (sh.getName() !== 'productos') return;
+
+    // Por si esta hoja quedó de antes de que existiera "sumarInventario":
+    // la agrega sola (ensureHeaders_ nunca reordena ni toca columnas ya
+    // existentes), así la columna funciona desde la primera edición sin
+    // depender de que la app haya sincronizado antes.
+    const headers = ensureHeaders_(sh, 'productos');
+    const colSumar = headers.indexOf('sumarInventario') + 1;
+    const colStock = headers.indexOf('stock') + 1;
+    if (!colSumar || !colStock) return;
+
+    const rango = e.range;
+    // ¿El rango editado toca la columna "sumarInventario"? (una sola celda,
+    // o un bloque/columna pegada que la incluye)
+    if (rango.getColumn() > colSumar || rango.getColumn() + rango.getNumColumns() - 1 < colSumar) return;
+
+    const filaInicio = Math.max(rango.getRow(), 2); // nunca la fila de encabezados
+    const filaFin = rango.getRow() + rango.getNumRows() - 1;
+    if (filaFin < filaInicio) return;
+
+    const colId = headers.indexOf('id') + 1;
+    const colNombre = headers.indexOf('nombre') + 1;
+    const historial = [];
+    for (let fila = filaInicio; fila <= filaFin; fila++) {
+      const celdaSumar = sh.getRange(fila, colSumar);
+      const cantidad = parseFloat(celdaSumar.getValue());
+      if (!cantidad || cantidad <= 0) continue; // vacío, texto, 0 o negativo: no hace nada
+      const stockCell = sh.getRange(fila, colStock);
+      const stockAntes = parseFloat(stockCell.getValue()) || 0;
+      const stockDespues = stockAntes + cantidad;
+      stockCell.setValue(stockDespues);
+      celdaSumar.setValue(''); // lista para la próxima entrada
+      historial.push([
+        Utilities.getUuid(), new Date().toISOString(),
+        colId ? sh.getRange(fila, colId).getValue() : '',
+        colNombre ? sh.getRange(fila, colNombre).getValue() : '',
+        cantidad, stockAntes, stockDespues, 'Google Sheets',
+      ]);
+    }
+    // Mismo kardex que usa NovaPOS al registrar una entrada desde la app
+    // (ver registrarEntradaInventario en index.html) — así el historial se
+    // ve igual sin importar si la entrada se capturó ahí o aquí.
+    if (historial.length) {
+      const histSheet = getSheet('entradas_inventario');
+      histSheet.getRange(histSheet.getLastRow()+1, 1, historial.length, historial[0].length).setValues(historial);
+    }
+  } catch (err) {
+    // Un trigger simple no puede mostrar un error al usuario que edita ni
+    // relanzarlo de forma visible — queda en Apps Script → Ejecuciones para
+    // poder diagnosticar si algo falla aquí.
+    console.error('onEdit (sumarInventario): ' + err);
+  }
 }
